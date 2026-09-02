@@ -12,7 +12,7 @@ export const BUILTIN_GROUPS = ['all', 'front', 'back', 'left', 'right', 'center'
 
 /** Resolves a group id/name to the list of fixture ids it currently contains. */
 export function resolveGroup(groupName, fixtures, customGroups = []) {
-  if (!groupName) return [];
+  if (typeof groupName !== 'string' || !groupName) return [];
   const name = groupName.toLowerCase();
 
   if (name === 'all') return fixtures.map((f) => f.id);
@@ -41,6 +41,7 @@ function prettyGroupName(id) {
 
 /** True if `fixture` belongs to the named group (role, type, 'all', or a custom group). */
 export function fixtureMatchesGroup(fixture, groupName, customGroups = []) {
+  if (typeof groupName !== 'string' || !groupName) return false;
   const name = groupName.toLowerCase();
   if (name === 'all') return true;
   if (['front', 'back', 'left', 'right', 'center'].includes(name)) return fixture.role === name;

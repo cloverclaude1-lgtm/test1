@@ -83,20 +83,21 @@ function evalCondition(cond, ctx) {
 
 /** Returns true/false for whether a rule's WHEN clause is satisfied this frame. */
 export function evaluateRule(rule, ctx) {
-  if (!rule.enabled || rule.conditions.length === 0) return false;
-  if (rule.logic === 'OR') return rule.conditions.some((c) => evalCondition(c, ctx));
-  return rule.conditions.every((c) => evalCondition(c, ctx));
+  const conditions = rule.conditions || [];
+  if (!rule.enabled || conditions.length === 0) return false;
+  if (rule.logic === 'OR') return conditions.some((c) => evalCondition(c, ctx));
+  return conditions.every((c) => evalCondition(c, ctx));
 }
 
 export function describeRule(rule) {
-  const condText = rule.conditions
+  const condText = (rule.conditions || [])
     .map((c) => {
       const meta = CONDITION_TYPES.find((t) => t.id === c.type);
       const base = meta?.hasValue ? `${meta.label} ${c.op || '>'} ${Math.round((c.value ?? 0.8) * 100)}%` : meta?.label || c.type;
       return c.negate ? `NOT ${base}` : base;
     })
     .join(` ${rule.logic} `);
-  const actionText = rule.actions
+  const actionText = (rule.actions || [])
     .map((a) => ACTION_TYPES.find((t) => t.id === a.type)?.label || a.type)
     .join(', ');
   return { condText: condText || '(no conditions)', actionText: actionText || '(no actions)' };

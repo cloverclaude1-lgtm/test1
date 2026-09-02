@@ -47,13 +47,17 @@ function computeMovement(mode, time, phase, bass) {
   return { pan, tilt };
 }
 
+const FALLBACK_GROUP_CFG = { intensity: 0.3, color: { r: 1, g: 1, b: 1 }, movement: 'static', strobe: 0 };
+const FALLBACK_REACTIONS = { beatFlashGroups: [], beatFlashAmount: 0, bassPulseGroups: [], bassPulseAmount: 0, onsetSparkleGroups: [] };
+
 /** Picks the scene-group config that applies to a fixture's role, falling back sensibly. */
 function groupConfigFor(scene, fixture) {
+  const groups = scene?.groups || {};
   return (
-    scene.groups[fixture.role] ||
-    scene.groups[fixture.type] ||
-    scene.groups.center ||
-    Object.values(scene.groups)[0] || { intensity: 0.3, color: { r: 1, g: 1, b: 1 }, movement: 'static', strobe: 0 }
+    groups[fixture.role] ||
+    groups[fixture.type] ||
+    groups.center ||
+    Object.values(groups)[0] || FALLBACK_GROUP_CFG
   );
 }
 
@@ -142,9 +146,9 @@ export class LightingEngine {
       state.zoom = 0.5;
 
       // --- Scene audio reactions -------------------------------------------------
-      const reactions = sceneNow.reactions;
-      if (beatEvent && reactions.beatFlashGroups.some((g) => fixtureMatchesGroup(fixture, g, project.customGroups))) {
-        this.flashEnvelope.set(fixture.id, { value: reactions.beatFlashAmount * beatEvent.strength, tau: 0.18 });
+      const reactions = { ...FALLBACK_REACTIONS, ...(sceneNow.reactions || {}) };
+      if (beatEvent && (reactions.beatFlashGroups || []).some((g) => fixtureMatchesGroup(fixture, g, project.customGroups))) {
+        this.flashEnvelope.set(fixture.id, { value: (reactions.beatFlashAmount ?? 0) * beatEvent.strength, tau: 0.18 });
       }
       const env = this.flashEnvelope.get(fixture.id);
       if (env) {
@@ -154,8 +158,8 @@ export class LightingEngine {
         if (env.value < 0.01) this.flashEnvelope.delete(fixture.id);
       }
 
-      if (reactions.bassPulseGroups.some((g) => fixtureMatchesGroup(fixture, g, project.customGroups))) {
-        state.intensity = Math.min(1, state.intensity + features.bass * reactions.bassPulseAmount * 0.6);
+      if ((reactions.bassPulseGroups || []).some((g) => fixtureMatchesGroup(fixture, g, project.customGroups))) {
+        state.intensity = Math.min(1, state.intensity + features.bass * (reactions.bassPulseAmount ?? 0) * 0.6);
       }
 
       if (fixture.type === 'ledstrip') {
@@ -164,6 +168,17 @@ export class LightingEngine {
 
       // --- User rules --------------------------------------------------------------
       this._applyRules(project.rules || [], fixture, state, ctx, time, project.customGroups);
+
+      // --- Per-fixture frequency-band reactivity (optional, set on the fixture) -----
+      const reactivity = fixture.audioReactivity;
+      if (reactivity && reactivity.band && reactivity.band !== 'none') {
+        const bandValue = features[reactivity.band] ?? 0;
+        if (reactivity.mode === 'modulate') {
+          state.intensity *= bandValue;
+        } else if (bandValue < (reactivity.threshold ?? 0.5)) {
+          state.intensity = 0;
+        }
+      }
 
       // --- Manual override (never destroyed by automation, brief §20) --------------
       state = applyOverride(state, fixture.override);
@@ -182,7 +197,7 @@ export class LightingEngine {
       const risingEdge = isActive && !wasActive;
       this.ruleWasActive.set(rule.id, isActive);
 
-      for (const action of rule.actions) {
+      for (const action of rule.actions || []) {
         const matches = action.group ? fixtureMatchesGroup(fixture, action.group, customGroups) : false;
 
         switch (action.type) {

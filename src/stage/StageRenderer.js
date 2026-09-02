@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { STAGE_LAYOUTS } from './stageLayouts.js';
 
 // ---------------------------------------------------------------------------
 // StageRenderer
@@ -12,11 +13,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 // depend on the 3D renderer").
 // ---------------------------------------------------------------------------
 
-const STAGE_WIDTH = 16;
-const STAGE_DEPTH = 11;
 const GRID_SNAP = 0.25;
 
-const unitBeamGeometry = new THREE.CylinderGeometry(0.04, 1, 1, 20, 1, true);
+// radiusTop lands at local Y=1 (the floor end, after the beam is oriented fixture->floor
+// and stretched by `dist`); radiusBottom lands at local Y=0 (the fixture end, position.copy(worldPos)).
+// So this must be WIDE at top / NARROW at bottom for a beam that's a tip at the fixture
+// spreading wide onto the floor.
+const unitBeamGeometry = new THREE.CylinderGeometry(1, 0.04, 1, 20, 1, true);
 unitBeamGeometry.translate(0, 0.5, 0); // spans local Y 0..1 so scale.y == length
 
 export class StageRenderer {
@@ -27,19 +30,18 @@ export class StageRenderer {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x030308);
-    this.scene.fog = new THREE.FogExp2(0x030308, 0.045); // cheap haze, brief §22
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
-    this.camera.position.set(0, 7, 13);
 
     this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.target.set(0, 2.5, -1);
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.minDistance = 3;
-    this.controls.maxDistance = 30;
+    this.controls.maxDistance = 40;
 
-    this._buildStage();
+    this.currentLayoutId = null;
+    this._layoutObjects = []; // meshes/lights owned by the current layout — disposed on setLayout()
+    this.setLayout('arena');
 
     this.fixtureVisuals = new Map(); // fixtureId -> { group, body, beam, light, kind, selectionRing, ledPixels? }
     this.selectedId = null;
@@ -61,22 +63,59 @@ export class StageRenderer {
     canvas.addEventListener('pointerdown', this._onPointerDown.bind(this));
     canvas.addEventListener('pointermove', this._onPointerMove.bind(this));
     window.addEventListener('pointerup', this._onPointerUp.bind(this));
+
+    // Without this, a lost WebGL context (more likely the longer/heavier a
+    // session runs — memory pressure, GPU driver hiccups, tab backgrounding)
+    // is PERMANENT: the canvas goes blank forever with no error and no way to
+    // recover short of a full page reload. preventDefault() here is what
+    // actually enables Three.js's automatic recovery on 'webglcontextrestored'
+    // (it lazily re-uploads existing geometries/materials on the next render
+    // call — our JS-side scene graph was never lost, only the GPU buffers).
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      console.warn('LightStage: WebGL context lost — attempting automatic recovery.');
+      this.onContextLost?.();
+    }, false);
+    canvas.addEventListener('webglcontextrestored', () => {
+      console.warn('LightStage: WebGL context restored.');
+      this.onContextRestored?.();
+    }, false);
   }
 
-  _buildStage() {
-    const hemi = new THREE.HemisphereLight(0x445577, 0x050508, 0.35);
-    this.scene.add(hemi);
+  /**
+   * Rebuilds the venue environment (floor/truss/backdrop/screen/ambient
+   * lighting/fog/camera framing) from a named layout in `stageLayouts.js`,
+   * disposing whatever the previous layout owned first. Fixtures the user has
+   * placed (`fixtureVisuals`) are never touched — switching venues re-stages
+   * the same rig, it doesn't reset it.
+   */
+  setLayout(layoutId) {
+    const config = STAGE_LAYOUTS[layoutId] || STAGE_LAYOUTS.arena;
+    this.currentLayoutId = STAGE_LAYOUTS[layoutId] ? layoutId : 'arena';
 
-    const floorGeo = new THREE.PlaneGeometry(STAGE_WIDTH, STAGE_DEPTH, 1, 1);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x0c0d12, roughness: 0.55, metalness: 0.35 });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
+    for (const obj of this._layoutObjects) {
+      this.scene.remove(obj);
+      obj.geometry?.dispose();
+      obj.material?.dispose();
+    }
+    this._layoutObjects = [];
+
+    this.scene.fog = new THREE.FogExp2(config.fogColor, config.fogDensity);
+
+    const own = (obj) => { this.scene.add(obj); this._layoutObjects.push(obj); return obj; };
+
+    own(new THREE.HemisphereLight(config.hemiSky, config.hemiGround, config.hemiIntensity));
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(config.width, config.depth, 1, 1),
+      new THREE.MeshStandardMaterial({ color: config.floorColor, roughness: 0.55, metalness: 0.35 })
+    );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set(0, 0, 0);
-    this.scene.add(floor);
+    own(floor);
 
-    const grid = new THREE.GridHelper(Math.max(STAGE_WIDTH, STAGE_DEPTH), 24, 0x2a2d3a, 0x15161d);
+    const grid = new THREE.GridHelper(Math.max(config.width, config.depth), 24, 0x2a2d3a, 0x15161d);
     grid.position.y = 0.01;
-    this.scene.add(grid);
+    own(grid);
 
     const centerRing = new THREE.Mesh(
       new THREE.RingGeometry(1.4, 1.55, 48),
@@ -84,40 +123,43 @@ export class StageRenderer {
     );
     centerRing.rotation.x = -Math.PI / 2;
     centerRing.position.set(0, 0.02, 0.5);
-    this.scene.add(centerRing);
+    own(centerRing);
 
     // Backdrop / back wall
     const backdrop = new THREE.Mesh(
-      new THREE.PlaneGeometry(STAGE_WIDTH + 4, 8),
-      new THREE.MeshStandardMaterial({ color: 0x08090d, roughness: 0.9 })
+      new THREE.PlaneGeometry(config.backdropWidth, config.backdropHeight),
+      new THREE.MeshStandardMaterial({ color: config.backdropColor, roughness: 0.9 })
     );
-    backdrop.position.set(0, 4, -STAGE_DEPTH / 2 - 0.2);
-    this.scene.add(backdrop);
+    backdrop.position.set(0, config.backdropHeight / 2, -config.depth / 2 - 0.2);
+    own(backdrop);
 
     // Optional screen (brief §11) — a dark panel above the backdrop centre
     const screen = new THREE.Mesh(
-      new THREE.PlaneGeometry(6, 3.2),
+      new THREE.PlaneGeometry(config.screenWidth, config.screenHeight),
       new THREE.MeshBasicMaterial({ color: 0x000000 })
     );
-    screen.position.set(0, 5.2, -STAGE_DEPTH / 2 + 0.05);
-    this.scene.add(screen);
+    screen.position.set(0, config.backdropHeight * 0.65, -config.depth / 2 + 0.05);
+    own(screen);
     this.screenMesh = screen;
 
     // Simple truss frame
-    const trussMat = new THREE.MeshStandardMaterial({ color: 0x2c2f3a, roughness: 0.4, metalness: 0.8 });
+    const trussMat = new THREE.MeshStandardMaterial({ color: config.trussColor, roughness: 0.4, metalness: 0.8 });
+    const trussY = config.trussY;
     const bar = (w, h, d, x, y, z) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), trussMat);
       m.position.set(x, y, z);
-      this.scene.add(m);
-      return m;
+      return own(m);
     };
-    const trussY = 6.4;
-    bar(STAGE_WIDTH - 2, 0.18, 0.18, 0, trussY, -STAGE_DEPTH / 2 + 1); // front truss (over back area lighting rig)
-    bar(STAGE_WIDTH - 2, 0.18, 0.18, 0, trussY, 2.5); // over-audience-facing truss
-    bar(0.18, trussY, 0.18, -(STAGE_WIDTH / 2 - 1), trussY / 2, -STAGE_DEPTH / 2 + 1);
-    bar(0.18, trussY, 0.18, (STAGE_WIDTH / 2 - 1), trussY / 2, -STAGE_DEPTH / 2 + 1);
-    bar(0.18, trussY, 0.18, -(STAGE_WIDTH / 2 - 1), trussY / 2, 2.5);
-    bar(0.18, trussY, 0.18, (STAGE_WIDTH / 2 - 1), trussY / 2, 2.5);
+    bar(config.width - 2, 0.18, 0.18, 0, trussY, -config.depth / 2 + 1); // back truss
+    bar(config.width - 2, 0.18, 0.18, 0, trussY, 2.5); // front (audience-facing) truss
+    bar(0.18, trussY, 0.18, -(config.width / 2 - 1), trussY / 2, -config.depth / 2 + 1);
+    bar(0.18, trussY, 0.18, (config.width / 2 - 1), trussY / 2, -config.depth / 2 + 1);
+    bar(0.18, trussY, 0.18, -(config.width / 2 - 1), trussY / 2, 2.5);
+    bar(0.18, trussY, 0.18, (config.width / 2 - 1), trussY / 2, 2.5);
+
+    this.camera.position.set(config.camera.pos.x, config.camera.pos.y, config.camera.pos.z);
+    this.controls.target.set(config.camera.target.x, config.camera.target.y, config.camera.target.z);
+    this.controls.update();
   }
 
   resize() {
@@ -143,10 +185,34 @@ export class StageRenderer {
     }
     for (const [id, vis] of this.fixtureVisuals) {
       if (!seen.has(id)) {
-        this.scene.remove(vis.group);
+        this._disposeFixtureVisual(vis);
         this.fixtureVisuals.delete(id);
       }
     }
+  }
+
+  /**
+   * Fully removes one fixture's visuals from the scene and frees their GPU
+   * resources. `beam`/`light`/`selectionRing` are added directly to `this.scene`
+   * (not as children of `vis.group` — see `_createFixtureVisual`), so removing
+   * only `vis.group` on delete would silently orphan them forever: still in the
+   * scene graph, still shaded every frame, with no reference left to clean them
+   * up later. Every add→duplicate→delete cycle leaked one extra PointLight plus
+   * geometries/materials this way before this fix — a real, unbounded resource
+   * leak that degrades a long editing session toward "frozen."
+   */
+  _disposeFixtureVisual(vis) {
+    this.scene.remove(vis.group, vis.beam, vis.selectionRing);
+    if (vis.light) this.scene.remove(vis.light);
+    vis.group.traverse((o) => {
+      if (o.isMesh) {
+        o.geometry?.dispose();
+        o.material?.dispose();
+      }
+    });
+    vis.beam.material?.dispose(); // beam geometry is the shared `unitBeamGeometry` — never dispose that
+    vis.selectionRing.geometry?.dispose();
+    vis.selectionRing.material?.dispose();
   }
 
   _createFixtureVisual(fixture) {
@@ -155,7 +221,7 @@ export class StageRenderer {
     const bodyColor = 0x1c1e28;
     let body;
     if (fixture.type === 'ledstrip') {
-      body = new THREE.Mesh(new THREE.BoxGeometry(fixture.params.lengthMeters || 2, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: bodyColor }));
+      body = new THREE.Mesh(new THREE.BoxGeometry(fixture.params?.lengthMeters || 2, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: bodyColor }));
     } else if (fixture.type === 'par' || fixture.type === 'strobe') {
       body = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.28, 16), new THREE.MeshStandardMaterial({ color: bodyColor }));
     } else {
@@ -189,8 +255,8 @@ export class StageRenderer {
     let ledPixels = null;
     if (fixture.type === 'ledstrip') {
       ledPixels = [];
-      const count = fixture.params.pixelCount || 12;
-      const len = fixture.params.lengthMeters || 2;
+      const count = fixture.params?.pixelCount || 12;
+      const len = fixture.params?.lengthMeters || 2;
       for (let i = 0; i < count; i++) {
         const px = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
         px.position.set((i / (count - 1) - 0.5) * len, 0.06, 0);
@@ -214,7 +280,7 @@ export class StageRenderer {
       const state = states.get(id);
       if (!fixture || !state) continue;
 
-      const caps = FIXTURE_CAPS[fixture.type];
+      const caps = FIXTURE_CAPS[fixture.type] || FIXTURE_CAPS.par;
       const worldPos = vis.group.position;
 
       // Strobe: fast on/off gating purely for the render (engine value is unaffected).

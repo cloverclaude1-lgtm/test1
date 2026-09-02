@@ -70,7 +70,22 @@
 
       <div class="main-body">
         <aside class="panel panel-left">
+          <h3>Stage</h3>
+          <div class="field">
+            <label>Layout</label>
+            <select id="stage-layout-select"></select>
+          </div>
+
           <h3>Fixtures</h3>
+          <div class="field">
+            <label>New fixtures react to</label>
+            <select id="default-reactivity-select">
+              <option value="none">None (automatic show only)</option>
+              <option value="bass">Bass</option>
+              <option value="mid">Mid</option>
+              <option value="treble">Treble</option>
+            </select>
+          </div>
           <div class="fixture-palette" id="fixture-palette">
             <button class="palette-btn" data-type="par">➕ PAR</button>
             <button class="palette-btn" data-type="spotlight">➕ Spotlight</button>
@@ -78,6 +93,15 @@
             <button class="palette-btn" data-type="strobe">➕ Strobe</button>
             <button class="palette-btn" data-type="ledstrip">➕ LED Strip</button>
           </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Rig preset</label>
+              <select id="rig-preset-select"></select>
+            </div>
+          </div>
+          <button id="btn-apply-rig-preset" class="btn btn-ghost tiny">+ Add Preset to Rig</button>
+
           <h3>Rig <span class="hint">(click to select)</span></h3>
           <div class="fixture-list" id="fixture-list"></div>
 

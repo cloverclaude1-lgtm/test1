@@ -98,11 +98,77 @@ export function renderProperties(container, fixture, callbacks) {
   if (caps.zoom) container.appendChild(overrideRow('Zoom', 'zoom', override, (v) => callbacks.onOverride('zoom', v), 'range', { min: 0, max: 1, step: 0.01 }));
   if (caps.strobe) container.appendChild(overrideRow('Strobe', 'strobe', override, (v) => callbacks.onOverride('strobe', v), 'range', { min: 0, max: 1, step: 0.01 }));
 
+  container.appendChild(frequencyResponseSection(fixture, callbacks.onChange));
+
   const hint = document.createElement('div');
   hint.className = 'empty-hint';
   hint.style.marginTop = '4px';
   hint.textContent = 'Check a box to manually pin a value — uncheck to return it to the automatic show.';
   container.appendChild(hint);
+}
+
+/**
+ * Optional per-fixture gate/modulation by a live frequency band — "this light
+ * only turns on when there's bass," etc. — independent of (and layered before)
+ * the manual override above. See LightingEngine.update()'s frequency-reactivity
+ * pass for how this is applied each frame.
+ */
+function frequencyResponseSection(fixture, onChange) {
+  const reactivity = fixture.audioReactivity || { band: 'none', mode: 'gate', threshold: 0.5 };
+  const wrap = document.createElement('div');
+  wrap.className = 'field';
+  const label = document.createElement('label');
+  label.textContent = 'Frequency Response';
+  wrap.appendChild(label);
+
+  const row = document.createElement('div');
+  row.className = 'field-row';
+
+  const bandSelect = document.createElement('select');
+  [['none', 'None'], ['bass', 'Bass'], ['mid', 'Mid'], ['treble', 'Treble']].forEach(([v, l]) => {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = l;
+    if (v === reactivity.band) opt.selected = true;
+    bandSelect.appendChild(opt);
+  });
+  bandSelect.addEventListener('change', () => onChange({ audioReactivity: { ...reactivity, band: bandSelect.value } }));
+  row.appendChild(field('Band', bandSelect));
+
+  const modeSelect = document.createElement('select');
+  [['gate', 'On/Off (Gate)'], ['modulate', 'Brightness (Modulate)']].forEach(([v, l]) => {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = l;
+    if (v === reactivity.mode) opt.selected = true;
+    modeSelect.appendChild(opt);
+  });
+  modeSelect.disabled = reactivity.band === 'none';
+  modeSelect.addEventListener('change', () => onChange({ audioReactivity: { ...reactivity, mode: modeSelect.value } }));
+  row.appendChild(field('Mode', modeSelect));
+  wrap.appendChild(row);
+
+  if (reactivity.band !== 'none' && reactivity.mode === 'gate') {
+    const thresholdInput = document.createElement('input');
+    thresholdInput.type = 'range';
+    thresholdInput.min = 0; thresholdInput.max = 1; thresholdInput.step = 0.01;
+    thresholdInput.value = reactivity.threshold ?? 0.5;
+    const thresholdField = field(`Threshold (${Math.round((reactivity.threshold ?? 0.5) * 100)}%)`, thresholdInput);
+    thresholdInput.addEventListener('input', () => {
+      thresholdField.querySelector('label').firstChild.textContent = `Threshold (${Math.round(thresholdInput.value * 100)}%)`;
+      onChange({ audioReactivity: { ...reactivity, threshold: parseFloat(thresholdInput.value) } });
+    });
+    wrap.appendChild(thresholdField);
+  }
+
+  const hint = document.createElement('div');
+  hint.className = 'empty-hint';
+  hint.textContent = reactivity.band === 'none'
+    ? 'Off by default — the fixture follows only the automatic show.'
+    : reactivity.mode === 'gate'
+      ? `Only lit while ${reactivity.band} is above the threshold.`
+      : `Brightness continuously follows live ${reactivity.band} energy.`;
+  wrap.appendChild(hint);
+
+  return wrap;
 }
 
 function overrideRow(label, key, override, onSet, type, opts) {

@@ -1,5 +1,6 @@
-import { createFixture } from '../fixtures/Fixture.js';
+import { FIXTURE_TYPES } from '../fixtures/Fixture.js';
 import { builtinSceneLibrary } from '../lighting/scenes.js';
+import { defaultRig } from './rigPresets.js';
 
 // ---------------------------------------------------------------------------
 // ProjectManager — local project files (brief §23).
@@ -18,12 +19,13 @@ export function createDefaultProject() {
   const scenes = {};
   for (const s of builtinSceneLibrary()) scenes[s.id] = s;
 
-  return {
+  return hydrateProject({
     version: PROJECT_VERSION,
     name: 'Untitled Show',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     style: 'edm',
+    stageLayout: 'arena',
     audio: null, // { fileName, dataUrl, analysis }
     fixtures: defaultRig(),
     customGroups: [],
@@ -31,24 +33,7 @@ export function createDefaultProject() {
     timeline: [],
     rules: [],
     settings: { volume: 0.9 },
-  };
-}
-
-function defaultRig() {
-  const specs = [
-    ['movinghead', -2.5, 6.2, 2.5, 'Moving Head L'],
-    ['movinghead', 2.5, 6.2, 2.5, 'Moving Head R'],
-    ['movinghead', 0, 6.4, 0, 'Moving Head C'],
-    ['spotlight', -2.5, 6.2, -4.5, 'Spotlight L'],
-    ['spotlight', 2.5, 6.2, -4.5, 'Spotlight R'],
-    ['par', -6.5, 6.0, 2.5, 'PAR Front L'],
-    ['par', 6.5, 6.0, 2.5, 'PAR Front R'],
-    ['par', -6.5, 6.0, -4.5, 'PAR Back L'],
-    ['par', 6.5, 6.0, -4.5, 'PAR Back R'],
-    ['strobe', 0, 6.2, 2.5, 'Strobe Bar'],
-    ['ledstrip', 0, 0.15, 4.8, 'Stage Edge LED'],
-  ];
-  return specs.map(([type, x, y, z, name]) => createFixture(type, { position: { x, y, z }, name }));
+  });
 }
 
 // -- Serialization ----------------------------------------------------------
@@ -99,7 +84,55 @@ export function deserializeProject(jsonString) {
     raw.version = PROJECT_VERSION;
   }
   if (raw.audio) raw.audio.analysis = analysisFromJSON(raw.audio.analysis);
-  return raw;
+  return hydrateProject(raw);
+}
+
+const DEFAULT_REACTIONS = { beatFlashGroups: [], beatFlashAmount: 0.6, bassPulseGroups: [], bassPulseAmount: 0.5, onsetSparkleGroups: [] };
+const DEFAULT_TRANSITION = { type: 'fade', duration: 2.0, easing: 'easeInOut' };
+const DEFAULT_AUDIO_REACTIVITY = { band: 'none', mode: 'gate', threshold: 0.5 };
+
+/**
+ * Repairs a project's shape after loading (or before first use) so an older
+ * schema, a hand-edited file, or a project saved by an earlier version of the
+ * app can never carry a landmine into the real-time render loop. Every field
+ * this fills in mirrors the same default some in-app creation path (e.g.
+ * `createFixture`/`createScene`) already uses, so a "hydrated" project is
+ * indistinguishable from one that was always shaped that way.
+ */
+export function hydrateProject(project) {
+  project.fixtures = (project.fixtures || []).map((f) => {
+    if (!FIXTURE_TYPES[f.type]) {
+      console.warn(`LightStage: unknown fixture type "${f.type}" on "${f.name || f.id}" — treating it as a PAR.`);
+      f.type = 'par';
+    }
+    f.params = { ...FIXTURE_TYPES[f.type].defaultParams, ...(f.params || {}) };
+    f.position = f.position || { x: 0, y: 3, z: 0 };
+    if (typeof f.enabled !== 'boolean') f.enabled = true;
+    f.audioReactivity = { ...DEFAULT_AUDIO_REACTIVITY, ...(f.audioReactivity || {}) };
+    return f;
+  });
+
+  project.customGroups = (project.customGroups || []).map((g) => ({
+    ...g,
+    fixtureIds: Array.isArray(g.fixtureIds) ? g.fixtureIds : [],
+  }));
+
+  for (const scene of Object.values(project.scenes || {})) {
+    scene.groups = scene.groups || {};
+    scene.reactions = { ...DEFAULT_REACTIONS, ...(scene.reactions || {}) };
+    scene.transition = { ...DEFAULT_TRANSITION, ...(scene.transition || {}) };
+  }
+
+  project.rules = (project.rules || []).map((r) => ({
+    ...r,
+    conditions: Array.isArray(r.conditions) ? r.conditions : [],
+    actions: Array.isArray(r.actions) ? r.actions : [],
+  }));
+
+  project.timeline = project.timeline || [];
+  project.stageLayout = project.stageLayout || 'arena';
+
+  return project;
 }
 
 /**

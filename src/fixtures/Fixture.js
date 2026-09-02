@@ -50,7 +50,7 @@ export function inferRole(position) {
   return 'center';
 }
 
-export function createFixture(type, { position, name, id } = {}) {
+export function createFixture(type, { position, name, id, audioReactivity } = {}) {
   const def = FIXTURE_TYPES[type];
   if (!def) throw new Error(`Unknown fixture type: ${type}`);
   const pos = position || { x: 0, y: 3, z: 0 };
@@ -65,6 +65,12 @@ export function createFixture(type, { position, name, id } = {}) {
     enabled: true,
     params: { ...def.defaultParams },
     baseColor: { r: 1, g: 1, b: 1 },
+    // Optional per-fixture gate/modulation by a live audio frequency band, layered
+    // into LightingEngine.update() after scenes/reactions/rules and before the
+    // manual override — lets a fixture be "on when there's bass" etc. without
+    // needing the full Rule Builder. 'none' (the default) leaves the fixture
+    // entirely driven by the automatic show, same as before this field existed.
+    audioReactivity: { band: 'none', mode: 'gate', threshold: 0.5, ...audioReactivity },
     // Manual override layered on top of engine output each frame; null fields fall through
     // to the automatically generated / rule-driven state (brief §20: never destructive).
     override: null,

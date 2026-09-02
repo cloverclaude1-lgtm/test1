@@ -1,6 +1,8 @@
 import { AudioEngine } from './audio/AudioEngine.js';
 import { LightingEngine } from './lighting/LightingEngine.js';
 import { StageRenderer } from './stage/StageRenderer.js';
+import { STAGE_LAYOUT_IDS, STAGE_LAYOUTS } from './stage/stageLayouts.js';
+import { RIG_PRESET_IDS, RIG_PRESETS, applyRigPreset } from './project/rigPresets.js';
 import { generateShow } from './lighting/ShowGenerator.js';
 import { STYLE_IDS, STYLES } from './lighting/stylePresets.js';
 import { createFixture, inferRole } from './fixtures/Fixture.js';
@@ -29,6 +31,7 @@ export class App {
     this.selectedFixtureId = null;
     this.selectedStyle = 'edm';
     this.advancedMode = false;
+    this._defaultReactivityBand = 'none';
 
     this._bindOnboarding();
     this._bindEditorShell();
@@ -119,6 +122,8 @@ export class App {
         const f = this.project.fixtures.find((x) => x.id === id);
         if (f) { f.position = pos; f.role = inferRole(pos); this._refreshProperties(); this._refreshGroups(); }
       };
+      this._stageRenderer.onContextLost = () => showToast('Graphics context lost — recovering…', { type: 'error' });
+      this._stageRenderer.onContextRestored = () => showToast('Graphics recovered.', { type: 'success' });
       this._timeline = new TimelineView(document.getElementById('timeline-canvas'));
       this._timeline.onSeek = (t) => this._seek(t);
       renderTimelineLegend(document.getElementById('timeline-legend'));
@@ -127,6 +132,9 @@ export class App {
     }
 
     this._populateStyleSelect();
+    this._populateStageLayoutSelect();
+    this._populateRigPresetSelect();
+    this._stageRenderer.setLayout(this.project.stageLayout || 'arena');
     this._stageRenderer.resize();
     this._timeline.resize();
     this._refreshAll();
@@ -224,8 +232,19 @@ export class App {
 
     document.getElementById('menu-help').addEventListener('click', () => openTutorial());
 
+    document.getElementById('default-reactivity-select').addEventListener('change', (e) => {
+      this._defaultReactivityBand = e.target.value;
+    });
+
     document.querySelectorAll('.palette-btn').forEach((btn) => {
       btn.addEventListener('click', () => this._addFixture(btn.dataset.type));
+    });
+
+    document.getElementById('btn-apply-rig-preset').addEventListener('click', () => {
+      const presetId = document.getElementById('rig-preset-select').value;
+      const added = applyRigPreset(this.project, presetId);
+      this._refreshFixtures();
+      showToast(`Added ${added} fixture(s) from "${RIG_PRESETS[presetId].label}"`, { type: 'success' });
     });
 
     document.getElementById('btn-new-group').addEventListener('click', () => {
@@ -266,6 +285,22 @@ export class App {
     };
   }
 
+  _populateStageLayoutSelect() {
+    const select = document.getElementById('stage-layout-select');
+    select.innerHTML = STAGE_LAYOUT_IDS.map((id) => `<option value="${id}">${STAGE_LAYOUTS[id].label}</option>`).join('');
+    select.value = this.project.stageLayout || 'arena';
+    select.onchange = () => {
+      this.project.stageLayout = select.value;
+      this._stageRenderer.setLayout(select.value);
+      showToast(`Stage set to ${STAGE_LAYOUTS[select.value].label}`, { type: 'success' });
+    };
+  }
+
+  _populateRigPresetSelect() {
+    const select = document.getElementById('rig-preset-select');
+    select.innerHTML = RIG_PRESET_IDS.map((id) => `<option value="${id}">${RIG_PRESETS[id].label}</option>`).join('');
+  }
+
   _applyGeneratedShow(styleId) {
     const analysis = this.project.audio?.analysis || this.audioEngine.analysis;
     // Drop the previous auto-generated scenes (whatever the old timeline referenced)
@@ -292,7 +327,7 @@ export class App {
     const n = this.project.fixtures.length;
     const angle = (n % 8) * (Math.PI / 4);
     const pos = { x: Math.cos(angle) * 5, y: 5.5, z: Math.sin(angle) * 2 - 1 };
-    const fixture = createFixture(type, { position: pos });
+    const fixture = createFixture(type, { position: pos, audioReactivity: { band: this._defaultReactivityBand } });
     this.project.fixtures.push(fixture);
     this.selectedFixtureId = fixture.id;
     this._refreshFixtures();
@@ -368,8 +403,8 @@ export class App {
         if (patch.position) {
           fixture.role = inferRole(fixture.position);
           this._refreshGroups();
-          this._refreshProperties();
         }
+        if (patch.position || patch.audioReactivity) this._refreshProperties();
         this._refreshFixtures();
       },
       onOverride: (key, value) => {
@@ -426,24 +461,47 @@ export class App {
   _startRenderLoop() {
     let lastFpsT = performance.now();
     let frames = 0;
+    let lastErrorToastAt = 0;
+
+    // Safety net: this loop must NEVER die. Before this fix, any exception thrown
+    // anywhere in update()/render()/draw() (e.g. from a fixture/scene/rule with an
+    // unexpected shape, most likely from an older/hand-edited saved project) would
+    // propagate out of `tick()` and — since `requestAnimationFrame(tick)` was the
+    // last statement — silently stop the whole render loop forever: the stage,
+    // timeline and time display would freeze mid-frame while the DOM (and its
+    // buttons) stayed technically alive, which reads exactly like "the app froze
+    // and nothing I click does anything." Catching here means a single bad frame
+    // is skipped and logged instead of killing the app; the next frame gets a
+    // fresh chance (and most of these bugs are now fixed at the source too, see
+    // the guards added in LightingEngine/StageRenderer/Groups/RuleEngine).
     const tick = () => {
-      const time = this.audioEngine.buffer ? this.audioEngine.currentTime : performance.now() / 1000;
-      const states = this.lightingEngine.update(time, this.audioEngine.featureStream, this.project);
-      this._stageRenderer.render(states, time);
-      this._timeline.draw(this.project, time, this.audioEngine.duration);
+      try {
+        const time = this.audioEngine.buffer ? this.audioEngine.currentTime : performance.now() / 1000;
+        const states = this.lightingEngine.update(time, this.audioEngine.featureStream, this.project);
+        this._stageRenderer.render(states, time);
+        this._timeline.draw(this.project, time, this.audioEngine.duration);
 
-      const dur = this.audioEngine.duration;
-      document.getElementById('time-display').textContent = `${fmtTime(time)} / ${fmtTime(dur)}`;
-      if (this.audioEngine.isPlaying && dur && time >= dur - 0.05) this._updatePlayButton();
+        const dur = this.audioEngine.duration;
+        document.getElementById('time-display').textContent = `${fmtTime(time)} / ${fmtTime(dur)}`;
+        if (this.audioEngine.isPlaying && dur && time >= dur - 0.05) this._updatePlayButton();
 
-      frames++;
-      const now = performance.now();
-      if (now - lastFpsT > 500) {
-        document.getElementById('fps-counter').textContent = `${Math.round((frames * 1000) / (now - lastFpsT))} fps`;
-        frames = 0;
-        lastFpsT = now;
+        frames++;
+        const now = performance.now();
+        if (now - lastFpsT > 500) {
+          document.getElementById('fps-counter').textContent = `${Math.round((frames * 1000) / (now - lastFpsT))} fps`;
+          frames = 0;
+          lastFpsT = now;
+        }
+      } catch (err) {
+        console.error('LightStage render loop error (frame skipped, loop continues):', err);
+        const now = performance.now();
+        if (now - lastErrorToastAt > 5000) {
+          lastErrorToastAt = now;
+          showToast('A rendering hiccup was recovered — check the console for details.', { type: 'error' });
+        }
+      } finally {
+        requestAnimationFrame(tick);
       }
-      requestAnimationFrame(tick);
     };
     this.audioEngine.onEnded = () => this._updatePlayButton();
     requestAnimationFrame(tick);

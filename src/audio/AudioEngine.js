@@ -107,6 +107,14 @@ export class AudioEngine {
     src.connect(this.gainNode);
     src.onended = () => {
       if (this.sourceNode === src) {
+        // Natural end-of-track: park the clock at the song's end instead of
+        // leaving `_startedAtOffset` at wherever this playback started from.
+        // Without this, `currentTime` (which reads `_startedAtOffset` whenever
+        // `_isPlaying` is false) would jump backward to that stale start point
+        // the instant the song ends, instead of settling at the end — a jarring
+        // reset that also briefly resurrects any just-expired timed lighting
+        // effect keyed off elapsed time.
+        this._startedAtOffset = this.buffer?.duration ?? this._startedAtOffset;
         this._isPlaying = false;
         this.onEnded?.();
       }
