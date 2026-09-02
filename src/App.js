@@ -22,6 +22,29 @@ import { TimelineView, renderTimelineLegend } from './ui/Timeline.js';
 // Maps AudioAnalyzer's onProgress `stage` names to the checklist's pipeline order
 // (see index.html #analysis-checklist data-order attributes).
 const STAGE_ORDER = { decode: 0, freq: 1, beats: 2, sections: 3, done: 4 };
+const DEFAULT_DROPPED_CUE_DURATION = 8;
+let nextCueId = 1;
+function makeCueId() {
+  return `cue_${Date.now().toString(36)}_${(nextCueId++).toString(36)}`;
+}
+
+/**
+ * Wraps a menubar action so a failure is never silent. Before this, an unexpected
+ * exception anywhere in a click handler (sync or async) just aborted that handler
+ * with nothing visible to the user — indistinguishable from "the button doesn't
+ * work." Every menubar control below goes through this so any future bug in one of
+ * them shows up as a toast + console entry instead of a mysteriously dead button.
+ */
+function safeHandler(label, fn) {
+  return async (...args) => {
+    try {
+      await fn(...args);
+    } catch (err) {
+      console.error(`LightStage: "${label}" failed:`, err);
+      showToast(`"${label}" hit an error — check the console for details.`, { type: 'error' });
+    }
+  };
+}
 
 export class App {
   constructor() {
@@ -126,7 +149,11 @@ export class App {
       this._stageRenderer.onContextRestored = () => showToast('Graphics recovered.', { type: 'success' });
       this._timeline = new TimelineView(document.getElementById('timeline-canvas'));
       this._timeline.onSeek = (t) => this._seek(t);
+      this._timeline.onCueSelect = (cueId) => this._refreshCueInspector(cueId);
+      this._timeline.onCueChange = () => this._refreshCueInspector(this._timeline.selectedCueId, { liveEdit: true });
+      this._timeline.onSceneDropped = (sceneId, time) => this._onSceneDropped(sceneId, time);
       renderTimelineLegend(document.getElementById('timeline-legend'));
+      this._bindCueInspector();
       window.addEventListener('resize', () => { this._stageRenderer.resize(); this._timeline.resize(); });
       this._startRenderLoop();
     }
@@ -154,34 +181,37 @@ export class App {
   // Editor shell (menubar, palette, transport)
   // =========================================================================
   _bindEditorShell() {
-    document.getElementById('menu-new').addEventListener('click', async () => {
+    document.getElementById('menu-new').addEventListener('click', safeHandler('New Project', async () => {
       if (await showConfirm('Start a new project? Unsaved changes will be lost.', { confirmLabel: 'Start New' })) {
         this.project = createDefaultProject();
         this.audioEngine.stop();
         this.lightingEngine = new LightingEngine();
         this.selectedFixtureId = null;
+        this._refreshCueInspector(null);
         this._refreshAll();
         showToast('New project started', { type: 'success' });
       }
-    });
+    }));
 
-    document.getElementById('menu-save').addEventListener('click', () => {
+    document.getElementById('menu-save').addEventListener('click', safeHandler('Save Project', () => {
       downloadProjectFile(this.project);
       showToast('Project file ready — check your downloads (or the new tab that opened on Safari)', { type: 'success', durationMs: 4000 });
-    });
+    }));
 
     const openInput = document.createElement('input');
     openInput.type = 'file';
     openInput.accept = '.json,application/json';
     openInput.className = 'visually-hidden-input';
     document.body.appendChild(openInput);
-    document.getElementById('menu-load').addEventListener('click', () => openInput.click());
-    openInput.addEventListener('change', async () => {
+    document.getElementById('menu-load').addEventListener('click', safeHandler('Open Project', () => openInput.click()));
+    openInput.addEventListener('change', safeHandler('Open Project', async () => {
       if (!openInput.files[0]) return;
       const project = await readProjectFile(openInput.files[0]);
       this.project = project;
       this.lightingEngine = new LightingEngine();
       this.selectedFixtureId = null;
+      this._timeline?.clearSelection();
+      this._refreshCueInspector(null);
       if (project.audio) {
         await this.audioEngine.restoreFromProject(project.audio.dataUrl, project.audio.fileName, project.audio.analysis);
       } else {
@@ -190,15 +220,15 @@ export class App {
       this._enterEditor();
       showToast(`Opened "${project.name || 'project'}"`, { type: 'success' });
       openInput.value = '';
-    });
+    }));
 
     const audioInput = document.createElement('input');
     audioInput.type = 'file';
     audioInput.accept = 'audio/*';
     audioInput.className = 'visually-hidden-input';
     document.body.appendChild(audioInput);
-    document.getElementById('menu-import-audio').addEventListener('click', () => audioInput.click());
-    audioInput.addEventListener('change', async () => {
+    document.getElementById('menu-import-audio').addEventListener('click', safeHandler('Import Audio', () => audioInput.click()));
+    audioInput.addEventListener('change', safeHandler('Import Audio', async () => {
       if (!audioInput.files[0]) return;
       await this.audioEngine.loadFromFile(audioInput.files[0]);
       this.project.audio = { fileName: this.audioEngine.fileName, dataUrl: this.audioEngine.audioDataUrl, analysis: this.audioEngine.analysis };
@@ -207,17 +237,25 @@ export class App {
       this._refreshAll();
       showToast('Song imported and analyzed. Click "Generate Show" when ready.', { type: 'success', durationMs: 4000 });
       audioInput.value = '';
-    });
+    }));
 
-    document.getElementById('menu-generate').addEventListener('click', () => {
+    document.getElementById('menu-generate').addEventListener('click', safeHandler('Generate Show', async () => {
       if (!this.project.audio) { showToast('Import a song first (Import Audio in the menu bar).', { type: 'error' }); return; }
+      if (this.project.timeline.length > 0) {
+        const ok = await showConfirm(
+          'This replaces your current timeline (including any hand-placed or resized cues) with a new automatically generated one. Continue?',
+          { confirmLabel: 'Generate' },
+        );
+        if (!ok) return;
+      }
       this._applyGeneratedShow(this.project.style);
+      this._refreshCueInspector(null);
       this._refreshAll();
       showToast(`Show generated — ${this.project.timeline.length} cues across the song`, { type: 'success' });
-    });
+    }));
 
     const advancedBtn = document.getElementById('menu-advanced-toggle');
-    advancedBtn.addEventListener('click', () => {
+    advancedBtn.addEventListener('click', safeHandler('Advanced', () => {
       this.advancedMode = !this.advancedMode;
       advancedBtn.classList.toggle('active', this.advancedMode);
       const groupsSection = document.getElementById('groups-section');
@@ -228,20 +266,23 @@ export class App {
         groupsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         rulesSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
-    });
+    }));
 
-    document.getElementById('menu-help').addEventListener('click', () => openTutorial());
+    document.getElementById('menu-help').addEventListener('click', safeHandler('Help', () => openTutorial()));
 
     const previewBtn = document.getElementById('preview-mode-toggle');
-    previewBtn.addEventListener('click', () => {
+    previewBtn.addEventListener('click', safeHandler('Preview Mode', () => {
       const enabled = !previewBtn.classList.contains('active');
-      previewBtn.classList.toggle('active', enabled);
       this._stageRenderer.setPreviewMode(enabled);
-    });
+      // Only flip the visible state once setPreviewMode has actually succeeded —
+      // if it threw, safeHandler's catch fires first and the button stays showing
+      // its real (unchanged) state instead of lying about having turned on.
+      previewBtn.classList.toggle('active', enabled);
+    }));
 
-    document.getElementById('default-reactivity-select').addEventListener('change', (e) => {
+    document.getElementById('default-reactivity-select').addEventListener('change', safeHandler('Frequency reactivity default', (e) => {
       this._defaultReactivityBand = e.target.value;
-    });
+    }));
 
     document.querySelectorAll('.palette-btn').forEach((btn) => {
       btn.addEventListener('click', () => this._addFixture(btn.dataset.type));
@@ -287,8 +328,10 @@ export class App {
     select.value = this.project.style;
     select.onchange = () => {
       this.project.style = select.value;
-      if (this.project.audio) this._applyGeneratedShow(select.value);
-      this._refreshAll();
+      // Deliberately does NOT auto-regenerate: once the timeline can be hand-edited,
+      // silently rebuilding it on every style pick would wipe out that work. Style
+      // just becomes what "Generate Show" builds next time it's clicked.
+      showToast(`Style set to ${STYLES[select.value].label} — click "Generate Show" to apply it`, { type: 'info' });
     };
   }
 
@@ -328,6 +371,94 @@ export class App {
   _seek(t) {
     this.audioEngine.seek(t);
     this.lightingEngine.resetClock(t);
+  }
+
+  // =========================================================================
+  // Editable timeline: dropping scenes onto it, and the Cue Inspector panel
+  // =========================================================================
+  _onSceneDropped(sceneId, time) {
+    const scene = this.project.scenes[sceneId];
+    const duration = this.audioEngine.duration;
+    if (!scene || !duration) return;
+    const endTime = Math.min(duration, time + DEFAULT_DROPPED_CUE_DURATION);
+    if (endTime - time < 0.3) return; // dropped right at the very end — no room for a cue
+    const cue = {
+      id: makeCueId(),
+      startTime: time,
+      endTime,
+      sceneId,
+      label: scene.name,
+      transitionType: scene.transition?.type || 'fade',
+      transitionDuration: scene.transition?.duration ?? 1.5,
+    };
+    // New/edited cues go to the front so they win the linear scan in findActiveCue()
+    // when they happen to overlap something already there — "whatever I just placed
+    // applies here" is the more intuitive rule for a drag-and-drop edit.
+    this.project.timeline.unshift(cue);
+    this._timeline.selectedCueId = cue.id;
+    this._refreshCueInspector(cue.id);
+    showToast(`Placed "${scene.name}" on the timeline`, { type: 'success' });
+  }
+
+  _bindCueInspector() {
+    document.getElementById('cue-start-input').addEventListener('change', (e) => {
+      const cue = this._selectedCue();
+      if (!cue) return;
+      const duration = cue.endTime - cue.startTime;
+      cue.startTime = Math.max(0, parseFloat(e.target.value) || 0);
+      cue.endTime = Math.min(this.audioEngine.duration, cue.startTime + duration);
+      this._refreshCueInspector(cue.id);
+    });
+    document.getElementById('cue-duration-input').addEventListener('change', (e) => {
+      const cue = this._selectedCue();
+      if (!cue) return;
+      const newDuration = Math.max(0.3, parseFloat(e.target.value) || 0.3);
+      cue.endTime = Math.min(this.audioEngine.duration, cue.startTime + newDuration);
+      this._refreshCueInspector(cue.id);
+    });
+    document.getElementById('cue-delete-btn').addEventListener('click', () => {
+      const cue = this._selectedCue();
+      if (!cue) return;
+      this.project.timeline = this.project.timeline.filter((c) => c.id !== cue.id);
+      this._timeline.clearSelection();
+      this._refreshCueInspector(null);
+      showToast('Cue deleted', { type: 'success' });
+    });
+    document.getElementById('cue-deselect-btn').addEventListener('click', () => {
+      this._timeline.clearSelection();
+      this._refreshCueInspector(null);
+    });
+  }
+
+  _selectedCue() {
+    const id = this._timeline?.selectedCueId;
+    return id ? this.project.timeline.find((c) => c.id === id) || null : null;
+  }
+
+  _refreshCueInspector(cueId, { liveEdit = false } = {}) {
+    if (this._timeline) this._timeline.selectedCueId = cueId;
+    const inspector = document.getElementById('cue-inspector');
+    const legend = document.getElementById('timeline-legend');
+    const cue = cueId ? this.project.timeline.find((c) => c.id === cueId) : null;
+
+    if (!cue) {
+      inspector.classList.add('hidden');
+      legend.classList.remove('hidden');
+      return;
+    }
+    inspector.classList.remove('hidden');
+    legend.classList.add('hidden');
+
+    const scene = this.project.scenes[cue.sceneId];
+    document.getElementById('cue-inspector-name').textContent = scene?.name || cue.label || 'Cue';
+    // Don't fight the user's cursor mid-drag by rewriting the input they might be
+    // focused in — only the numbers themselves update live during a drag/resize.
+    if (!liveEdit || document.activeElement?.id !== 'cue-start-input') {
+      document.getElementById('cue-start-input').value = cue.startTime.toFixed(1);
+    }
+    if (!liveEdit || document.activeElement?.id !== 'cue-duration-input') {
+      document.getElementById('cue-duration-input').value = (cue.endTime - cue.startTime).toFixed(1);
+    }
   }
 
   _addFixture(type) {

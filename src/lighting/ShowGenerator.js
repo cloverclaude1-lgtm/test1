@@ -70,22 +70,37 @@ export function generateShow(analysis, styleId) {
   return { styleId, scenes, timeline };
 }
 
-/** Finds the timeline entry active at `time`, plus the previous one (for crossfade blending). */
+/**
+ * Finds the timeline entry active at `time`, plus the previous one (for crossfade
+ * blending). The auto-generator always produces contiguous, gap-free cues, so a "no
+ * exact match" only used to happen before the first cue or after the last — but manual
+ * editing (drag a cue, delete one) can now leave real gaps in the middle of the
+ * timeline too. When `time` lands in a gap, pick whichever cue's span is closest
+ * rather than always falling through to the last cue in the array.
+ */
 export function findActiveCue(timeline, time) {
-  let active = null;
+  if (!timeline.length) return { active: null, prev: null, index: -1 };
+
   let index = -1;
   for (let i = 0; i < timeline.length; i++) {
     if (time >= timeline[i].startTime && time < timeline[i].endTime) {
-      active = timeline[i];
       index = i;
       break;
     }
   }
-  if (!active && timeline.length) {
-    // past the end or before the start — clamp to nearest cue
-    index = time < timeline[0].startTime ? 0 : timeline.length - 1;
-    active = timeline[index];
+
+  if (index === -1) {
+    let bestDist = Infinity;
+    for (let i = 0; i < timeline.length; i++) {
+      const dist = time < timeline[i].startTime ? timeline[i].startTime - time : time - timeline[i].endTime;
+      if (dist < bestDist) {
+        bestDist = dist;
+        index = i;
+      }
+    }
   }
+
+  const active = timeline[index];
   const prev = index > 0 ? timeline[index - 1] : null;
   return { active, prev, index };
 }

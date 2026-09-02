@@ -142,6 +142,13 @@
           <button id="btn-stop" class="transport-btn">■</button>
           <span id="time-display" class="time-display">00:00 / 00:00</span>
           <div id="timeline-legend" class="timeline-legend"></div>
+          <div id="cue-inspector" class="cue-inspector hidden">
+            <span id="cue-inspector-name" class="cue-inspector-name"></span>
+            <label>Start <input type="number" id="cue-start-input" step="0.1" min="0" /></label>
+            <label>Duration <input type="number" id="cue-duration-input" step="0.1" min="0.3" /></label>
+            <button id="cue-delete-btn" class="btn btn-ghost tiny" style="width:auto;margin-top:0;">Delete Cue</button>
+            <button id="cue-deselect-btn" class="icon-btn" title="Deselect">✕</button>
+          </div>
         </div>
         <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
       </footer>
