@@ -1,0 +1,347 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+// ---------------------------------------------------------------------------
+// StageRenderer
+//
+// Pure presentation layer: it knows nothing about audio or the lighting
+// engine's internals. Each frame the app hands it a Map<fixtureId,
+// FixtureState> (brief §8's output) and it draws fixtures, beams and an
+// illuminated stage. Keeping this separate from LightingEngine is what the
+// brief calls out explicitly in §3 ("lighting engine should NOT directly
+// depend on the 3D renderer").
+// ---------------------------------------------------------------------------
+
+const STAGE_WIDTH = 16;
+const STAGE_DEPTH = 11;
+const GRID_SNAP = 0.25;
+
+const unitBeamGeometry = new THREE.CylinderGeometry(0.04, 1, 1, 20, 1, true);
+unitBeamGeometry.translate(0, 0.5, 0); // spans local Y 0..1 so scale.y == length
+
+export class StageRenderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x030308);
+    this.scene.fog = new THREE.FogExp2(0x030308, 0.045); // cheap haze, brief §22
+
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+    this.camera.position.set(0, 7, 13);
+
+    this.controls = new OrbitControls(this.camera, canvas);
+    this.controls.target.set(0, 2.5, -1);
+    this.controls.enableDamping = true;
+    this.controls.maxPolarAngle = Math.PI * 0.49;
+    this.controls.minDistance = 3;
+    this.controls.maxDistance = 30;
+
+    this._buildStage();
+
+    this.fixtureVisuals = new Map(); // fixtureId -> { group, body, beam, light, kind, selectionRing, ledPixels? }
+    this.selectedId = null;
+
+    // Scratch objects reused every frame in render() to avoid per-fixture GC churn.
+    this._tmpColor = new THREE.Color();
+    this._tmpTarget = new THREE.Vector3();
+    this._tmpDir = new THREE.Vector3();
+    this._up = new THREE.Vector3(0, 1, 0);
+
+    this._raycaster = new THREE.Raycaster();
+    this._pointer = new THREE.Vector2();
+    this._dragging = null; // fixtureId being dragged
+    this._dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+    this.onFixtureClick = null; // (id|null) => void
+    this.onFixtureMoved = null; // (id, {x,y,z}) => void
+
+    canvas.addEventListener('pointerdown', this._onPointerDown.bind(this));
+    canvas.addEventListener('pointermove', this._onPointerMove.bind(this));
+    window.addEventListener('pointerup', this._onPointerUp.bind(this));
+  }
+
+  _buildStage() {
+    const hemi = new THREE.HemisphereLight(0x445577, 0x050508, 0.35);
+    this.scene.add(hemi);
+
+    const floorGeo = new THREE.PlaneGeometry(STAGE_WIDTH, STAGE_DEPTH, 1, 1);
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x0c0d12, roughness: 0.55, metalness: 0.35 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, 0);
+    this.scene.add(floor);
+
+    const grid = new THREE.GridHelper(Math.max(STAGE_WIDTH, STAGE_DEPTH), 24, 0x2a2d3a, 0x15161d);
+    grid.position.y = 0.01;
+    this.scene.add(grid);
+
+    const centerRing = new THREE.Mesh(
+      new THREE.RingGeometry(1.4, 1.55, 48),
+      new THREE.MeshBasicMaterial({ color: 0x7c5cff, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+    );
+    centerRing.rotation.x = -Math.PI / 2;
+    centerRing.position.set(0, 0.02, 0.5);
+    this.scene.add(centerRing);
+
+    // Backdrop / back wall
+    const backdrop = new THREE.Mesh(
+      new THREE.PlaneGeometry(STAGE_WIDTH + 4, 8),
+      new THREE.MeshStandardMaterial({ color: 0x08090d, roughness: 0.9 })
+    );
+    backdrop.position.set(0, 4, -STAGE_DEPTH / 2 - 0.2);
+    this.scene.add(backdrop);
+
+    // Optional screen (brief §11) — a dark panel above the backdrop centre
+    const screen = new THREE.Mesh(
+      new THREE.PlaneGeometry(6, 3.2),
+      new THREE.MeshBasicMaterial({ color: 0x000000 })
+    );
+    screen.position.set(0, 5.2, -STAGE_DEPTH / 2 + 0.05);
+    this.scene.add(screen);
+    this.screenMesh = screen;
+
+    // Simple truss frame
+    const trussMat = new THREE.MeshStandardMaterial({ color: 0x2c2f3a, roughness: 0.4, metalness: 0.8 });
+    const bar = (w, h, d, x, y, z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), trussMat);
+      m.position.set(x, y, z);
+      this.scene.add(m);
+      return m;
+    };
+    const trussY = 6.4;
+    bar(STAGE_WIDTH - 2, 0.18, 0.18, 0, trussY, -STAGE_DEPTH / 2 + 1); // front truss (over back area lighting rig)
+    bar(STAGE_WIDTH - 2, 0.18, 0.18, 0, trussY, 2.5); // over-audience-facing truss
+    bar(0.18, trussY, 0.18, -(STAGE_WIDTH / 2 - 1), trussY / 2, -STAGE_DEPTH / 2 + 1);
+    bar(0.18, trussY, 0.18, (STAGE_WIDTH / 2 - 1), trussY / 2, -STAGE_DEPTH / 2 + 1);
+    bar(0.18, trussY, 0.18, -(STAGE_WIDTH / 2 - 1), trussY / 2, 2.5);
+    bar(0.18, trussY, 0.18, (STAGE_WIDTH / 2 - 1), trussY / 2, 2.5);
+  }
+
+  resize() {
+    const { clientWidth, clientHeight } = this.canvas;
+    if (clientWidth === 0 || clientHeight === 0) return;
+    this.renderer.setSize(clientWidth, clientHeight, false);
+    this.camera.aspect = clientWidth / clientHeight;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Syncs the Three.js scene graph with the current fixture list (add/remove/reposition). */
+  syncFixtures(fixtures) {
+    const seen = new Set();
+    for (const fixture of fixtures) {
+      seen.add(fixture.id);
+      let vis = this.fixtureVisuals.get(fixture.id);
+      if (!vis) {
+        vis = this._createFixtureVisual(fixture);
+        this.fixtureVisuals.set(fixture.id, vis);
+      }
+      vis.group.position.set(fixture.position.x, fixture.position.y, fixture.position.z);
+      vis.fixture = fixture;
+    }
+    for (const [id, vis] of this.fixtureVisuals) {
+      if (!seen.has(id)) {
+        this.scene.remove(vis.group);
+        this.fixtureVisuals.delete(id);
+      }
+    }
+  }
+
+  _createFixtureVisual(fixture) {
+    const group = new THREE.Group();
+    group.userData.fixtureId = fixture.id;
+    const bodyColor = 0x1c1e28;
+    let body;
+    if (fixture.type === 'ledstrip') {
+      body = new THREE.Mesh(new THREE.BoxGeometry(fixture.params.lengthMeters || 2, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: bodyColor }));
+    } else if (fixture.type === 'par' || fixture.type === 'strobe') {
+      body = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.28, 16), new THREE.MeshStandardMaterial({ color: bodyColor }));
+    } else {
+      body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.3), new THREE.MeshStandardMaterial({ color: bodyColor }));
+    }
+    body.userData.fixtureId = fixture.id;
+    group.add(body);
+
+    const lensColor = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const lens = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), lensColor);
+    lens.position.y = -0.16;
+    lens.userData.fixtureId = fixture.id;
+    group.add(lens);
+
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const beam = new THREE.Mesh(unitBeamGeometry, beamMat);
+    this.scene.add(beam); // beam positioned in world space independent of group rotation
+
+    const light = fixture.type === 'ledstrip'
+      ? null
+      : new THREE.PointLight(0xffffff, 0, 10, 2);
+    if (light) this.scene.add(light);
+
+    const selectionRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.32, 0.4, 24),
+      new THREE.MeshBasicMaterial({ color: 0x7c5cff, transparent: true, opacity: 0, side: THREE.DoubleSide })
+    );
+    selectionRing.rotation.x = -Math.PI / 2;
+    this.scene.add(selectionRing);
+
+    let ledPixels = null;
+    if (fixture.type === 'ledstrip') {
+      ledPixels = [];
+      const count = fixture.params.pixelCount || 12;
+      const len = fixture.params.lengthMeters || 2;
+      for (let i = 0; i < count; i++) {
+        const px = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        px.position.set((i / (count - 1) - 0.5) * len, 0.06, 0);
+        group.add(px);
+        ledPixels.push(px);
+      }
+    }
+
+    this.scene.add(group);
+    return { group, body, lens, beam, light, selectionRing, ledPixels, kind: fixture.type };
+  }
+
+  setSelected(id) {
+    this.selectedId = id;
+  }
+
+  /** Main draw call. `states` is the Map<fixtureId, FixtureState> from LightingEngine. */
+  render(states, time) {
+    for (const [id, vis] of this.fixtureVisuals) {
+      const fixture = vis.fixture;
+      const state = states.get(id);
+      if (!fixture || !state) continue;
+
+      const caps = FIXTURE_CAPS[fixture.type];
+      const worldPos = vis.group.position;
+
+      // Strobe: fast on/off gating purely for the render (engine value is unaffected).
+      let displayIntensity = state.intensity;
+      if (state.strobe > 0.03) {
+        const rate = 4 + state.strobe * 22;
+        const on = Math.floor(time * rate) % 2 === 0;
+        displayIntensity *= on ? 1 : 0.05;
+      }
+
+      const color = this._tmpColor.setRGB(state.color.r, state.color.g, state.color.b);
+      vis.body.material.emissive.copy(color).multiplyScalar(displayIntensity * 0.9);
+
+      if (vis.lens && vis.lens.material) {
+        vis.lens.material.color.copy(color);
+        vis.lens.material.color.multiplyScalar(0.3 + displayIntensity * 0.9);
+      }
+
+      // Aim point: PAR/LED point straight down; movable fixtures sweep pan/tilt across the stage.
+      const target = this._tmpTarget.set(worldPos.x, 0, worldPos.z);
+      if (caps.pan) target.x += state.pan * 5;
+      if (caps.tilt) target.z += -1 + state.tilt * 4;
+
+      if (vis.light) {
+        vis.light.color.copy(color);
+        vis.light.intensity = caps.pan || caps.tilt ? displayIntensity * 3.2 : displayIntensity * 2.2;
+        vis.light.position.set(target.x, 0.3, target.z);
+      }
+
+      const dir = this._tmpDir.subVectors(target, worldPos);
+      const dist = Math.max(0.3, dir.length());
+      dir.normalize();
+      vis.beam.visible = displayIntensity > 0.02;
+      if (vis.beam.visible) {
+        vis.beam.position.copy(worldPos);
+        vis.beam.quaternion.setFromUnitVectors(this._up, dir);
+        const widen = 0.3 + (1 - state.zoom) * 1.6;
+        vis.beam.scale.set(widen, dist, widen);
+        vis.beam.material.color.copy(color);
+        vis.beam.material.opacity = Math.min(0.45, displayIntensity * 0.4);
+      } else {
+        vis.beam.material.opacity = 0;
+      }
+
+      if (vis.ledPixels && state.pixels) {
+        vis.ledPixels.forEach((px, i) => {
+          const v = state.pixels[i] ?? 0;
+          px.material.color.copy(color).multiplyScalar(0.2 + v * state.intensity);
+        });
+      }
+
+      const isSelected = id === this.selectedId;
+      vis.selectionRing.position.set(worldPos.x, 0.03, worldPos.z);
+      vis.selectionRing.material.opacity = isSelected ? 0.7 : 0;
+    }
+
+    // Screen reflects the overall wash colour — cheap "video screen" ambience.
+    if (this.screenMesh) {
+      let r = 0, g = 0, b = 0, n = 0;
+      for (const [, vis] of this.fixtureVisuals) {
+        const s = states.get(vis.fixture?.id);
+        if (!s) continue;
+        r += s.color.r * s.intensity; g += s.color.g * s.intensity; b += s.color.b * s.intensity; n++;
+      }
+      if (n > 0) this.screenMesh.material.color.setRGB((r / n) * 0.5, (g / n) * 0.5, (b / n) * 0.5);
+    }
+
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  // ---- selection / drag-to-move -------------------------------------------------
+  _pickFixtureAt(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    this._pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this._pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this._raycaster.setFromCamera(this._pointer, this.camera);
+    const meshes = [];
+    for (const vis of this.fixtureVisuals.values()) vis.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    const hits = this._raycaster.intersectObjects(meshes, false);
+    if (!hits.length) return null;
+    let obj = hits[0].object;
+    while (obj && !obj.userData.fixtureId) obj = obj.parent;
+    return obj ? obj.userData.fixtureId : null;
+  }
+
+  _onPointerDown(event) {
+    const id = this._pickFixtureAt(event);
+    this.onFixtureClick?.(id);
+    if (id) {
+      this._dragging = id;
+      this._dragPlane.constant = -this.fixtureVisuals.get(id).group.position.y;
+      this.controls.enabled = false;
+    }
+  }
+
+  _onPointerMove(event) {
+    if (!this._dragging) return;
+    const rect = this.canvas.getBoundingClientRect();
+    this._pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this._pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this._raycaster.setFromCamera(this._pointer, this.camera);
+    const point = new THREE.Vector3();
+    if (this._raycaster.ray.intersectPlane(this._dragPlane, point)) {
+      const x = Math.round(point.x / GRID_SNAP) * GRID_SNAP;
+      const z = Math.round(point.z / GRID_SNAP) * GRID_SNAP;
+      const vis = this.fixtureVisuals.get(this._dragging);
+      vis.group.position.x = x;
+      vis.group.position.z = z;
+      this.onFixtureMoved?.(this._dragging, { x, y: vis.group.position.y, z });
+    }
+  }
+
+  _onPointerUp() {
+    this._dragging = null;
+    this.controls.enabled = true;
+  }
+
+  dispose() {
+    this.renderer.dispose();
+  }
+}
+
+const FIXTURE_CAPS = {
+  par: { pan: false, tilt: false },
+  spotlight: { pan: true, tilt: true },
+  movinghead: { pan: true, tilt: true },
+  strobe: { pan: false, tilt: false },
+  ledstrip: { pan: false, tilt: false },
+};

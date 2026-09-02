@@ -1,0 +1,22 @@
+{
+  "name": "lightstage",
+  "version": "0.1.0",
+  "description": "LightStage — music-reactive concert lighting designer (MVP)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host --port 4173",
+    "electron": "electron electron/main.cjs",
+    "make-demo-audio": "node scripts/make-demo-audio.mjs"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "playwright": "^1.56.1",
+    "vite": "^5.4.0"
+  }
+}
