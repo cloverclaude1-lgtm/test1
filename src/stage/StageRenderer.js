@@ -41,6 +41,9 @@ export class StageRenderer {
 
     this.currentLayoutId = null;
     this._layoutObjects = []; // meshes/lights owned by the current layout — disposed on setLayout()
+    this.previewMode = false;
+    this._previewLights = null; // created lazily on first enable, reused after that
+    this._preFogDensity = null;
     this.setLayout('arena');
 
     this.fixtureVisuals = new Map(); // fixtureId -> { group, body, beam, light, kind, selectionRing, ledPixels? }
@@ -160,6 +163,72 @@ export class StageRenderer {
     this.camera.position.set(config.camera.pos.x, config.camera.pos.y, config.camera.pos.z);
     this.controls.target.set(config.camera.target.x, config.camera.target.y, config.camera.target.z);
     this.controls.update();
+
+    // setLayout() just rebuilt `this.scene.fog` from scratch — if Preview Mode was
+    // active, re-apply it now so switching venues doesn't silently drop back to the
+    // normal dim look out from under the user.
+    if (this.previewMode) this.setPreviewMode(true);
+  }
+
+  /**
+   * Toggles a bright, flat "work light" view so a user can see the truss, floor,
+   * backdrop and every placed fixture clearly, regardless of what the current show
+   * (or the idle no-show wash) has them lit to. Purely a viewing convenience — it
+   * never touches FixtureState, the project, or the generated show.
+   *
+   * Extra scene lights + fading the fog alone turned out not to be enough: the
+   * floor/backdrop/truss materials are deliberately near-black for the normal
+   * moody show look, and near-black colors stay dark under a diffuse light no
+   * matter how bright that light is (the material multiplies the light down to
+   * almost nothing). So this also temporarily swaps those materials' base
+   * colors to light neutral tones — restored exactly on disable — which is what
+   * actually makes the environment and rig legible, not just "less black."
+   */
+  setPreviewMode(enabled) {
+    this.previewMode = enabled;
+
+    if (!this._previewLights) {
+      const ambient = new THREE.AmbientLight(0xffffff, 0.75);
+      const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+      fill.position.set(6, 12, 8);
+      this._previewLights = [ambient, fill];
+    }
+
+    if (enabled) {
+      for (const light of this._previewLights) this.scene.add(light);
+      if (this.scene.fog) {
+        // Always capture fresh: this runs either on a direct enable (fog is
+        // currently at its normal density) or right after setLayout() rebuilds
+        // fog from scratch for a new venue (also its normal density) — in both
+        // cases `scene.fog.density` right now IS the correct value to restore
+        // to later. Caching it only once would go stale across a layout switch.
+        this._preFogDensity = this.scene.fog.density;
+        this.scene.fog.density = this._preFogDensity * 0.12;
+      }
+
+      this._dimmedColors = new Map();
+      for (const obj of this._layoutObjects) {
+        if (obj !== this.screenMesh) this._brightenForPreview(obj, 0xb8bcc8);
+      }
+      for (const vis of this.fixtureVisuals.values()) this._brightenForPreview(vis.body, 0x555a6a);
+    } else {
+      for (const light of this._previewLights) this.scene.remove(light);
+      if (this.scene.fog && this._preFogDensity != null) {
+        this.scene.fog.density = this._preFogDensity;
+        this._preFogDensity = null;
+      }
+      if (this._dimmedColors) {
+        for (const [material, hex] of this._dimmedColors) material.color.setHex(hex);
+        this._dimmedColors = null;
+      }
+    }
+  }
+
+  /** Records a mesh's current material color (keyed by material, restored on disable) and brightens it. */
+  _brightenForPreview(mesh, hex) {
+    if (!mesh?.material?.color || !this._dimmedColors) return;
+    if (!this._dimmedColors.has(mesh.material)) this._dimmedColors.set(mesh.material, mesh.material.color.getHex());
+    mesh.material.color.setHex(hex);
   }
 
   resize() {
@@ -179,6 +248,9 @@ export class StageRenderer {
       if (!vis) {
         vis = this._createFixtureVisual(fixture);
         this.fixtureVisuals.set(fixture.id, vis);
+        // A fixture added while Preview Mode is already on should show up bright
+        // immediately, not stay dark until the toggle is flipped off and back on.
+        if (this.previewMode) this._brightenForPreview(vis.body, 0x555a6a);
       }
       vis.group.position.set(fixture.position.x, fixture.position.y, fixture.position.z);
       vis.fixture = fixture;

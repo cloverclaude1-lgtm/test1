@@ -232,6 +232,10 @@ export class App {
 
     document.getElementById('menu-help').addEventListener('click', () => openTutorial());
 
+    document.getElementById('preview-mode-toggle').addEventListener('change', (e) => {
+      this._stageRenderer.setPreviewMode(e.target.checked);
+    });
+
     document.getElementById('default-reactivity-select').addEventListener('change', (e) => {
       this._defaultReactivityBand = e.target.value;
     });
