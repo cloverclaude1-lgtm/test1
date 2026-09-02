@@ -18,6 +18,9 @@ import { evaluateRule } from './RuleEngine.js';
 //
 // Layering per fixture, each pass allowed to override the previous:
 //   1. Scene base look (per-group intensity/color + procedural movement)
+//   1b. Scene self-animation (optional pulse/colorCycle — breathing, waves,
+//       color chases — independent of the music, see the "Breathing" etc.
+//       scenes in scenes.js)
 //   2. Scene audio reactions (beat flash decay, bass pulse, onset sparkle)
 //   3. User rules (continuous conditions + timed effects: flash/fade/pulse)
 //   4. Per-fixture manual override (brief §20 — never destructive)
@@ -144,6 +147,32 @@ export class LightingEngine {
       state.tilt = lerp(moveBlend.tilt, moveNow.tilt, blend);
       state.strobe = lerp(cfgPrev.strobe, cfgNow.strobe, blend);
       state.zoom = 0.5;
+
+      // --- Scene-driven animation (independent of the music) -----------------------
+      // Optional per-group `pulse`/`colorCycle` config lets a manually-applied scene
+      // have its own life without needing a beat — "Breathing" (pulse, spread 0 =
+      // every fixture dims/brightens in unison), "Ocean Wave" (pulse, spread > 0 =
+      // the same pulse sweeps across the rig fixture-by-fixture), "Rainbow Chase"/
+      // "Slow Fade" (colorCycle rotates hue over time, spread spreads that hue
+      // across fixtures instead of keeping them in sync). Both fade in with `blend`
+      // so they never look like they "hard cut" partway through a scene transition.
+      if (cfgNow.pulse) {
+        const { rate = 0.2, depth = 0.4, spread = 0 } = cfgNow.pulse;
+        const wave = 0.5 + 0.5 * Math.sin(time * rate * 2 * Math.PI + phase * spread);
+        const pulsed = state.intensity * (1 - depth + depth * wave);
+        state.intensity = lerp(state.intensity, pulsed, blend);
+      }
+      if (cfgNow.colorCycle) {
+        const { rate = 0.08, saturation = 0.75, lightness = 0.55, spread = 0 } = cfgNow.colorCycle;
+        let hue = (time * rate + phase * spread * 0.05) % 1;
+        if (hue < 0) hue += 1;
+        const cycled = hslToRgb(hue, saturation, lightness);
+        state.color = {
+          r: lerp(state.color.r, cycled.r, blend),
+          g: lerp(state.color.g, cycled.g, blend),
+          b: lerp(state.color.b, cycled.b, blend),
+        };
+      }
 
       // --- Scene audio reactions -------------------------------------------------
       const reactions = { ...FALLBACK_REACTIONS, ...(sceneNow.reactions || {}) };
@@ -281,3 +310,19 @@ function computeLedPixels(fixture, time, features, onsetEvent) {
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function easeInOut(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+/** h/s/l in 0..1, used by scenes.js's `colorCycle` to rotate hue over time. */
+function hslToRgb(h, s, l) {
+  if (s === 0) return { r: l, g: l, b: l };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hueToRgb = (t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return { r: hueToRgb(h + 1 / 3), g: hueToRgb(h), b: hueToRgb(h - 1 / 3) };
+}
