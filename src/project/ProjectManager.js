@@ -102,17 +102,43 @@ export function deserializeProject(jsonString) {
   return raw;
 }
 
+/**
+ * Saves a project to a local file via a Blob + `<a download>` click — the
+ * simplest, most broadly reliable approach across normal browser tabs.
+ *
+ * The File System Access API (`showSaveFilePicker`) was tried here first in
+ * an earlier version, but it turned out to be a worse bet for this app: it
+ * opens a real native OS dialog that can hang indefinitely with no visible
+ * feedback when invoked inside a restricted/embedded preview surface (the
+ * exact kind of environment — a sandboxed webview or forwarded-port preview —
+ * this app is most often reported as "not working" from), and it isn't
+ * available at all outside Chromium. The plain anchor-download path degrades
+ * far more gracefully: it either downloads immediately or silently no-ops,
+ * never hangs waiting on a dialog the user can't see.
+ *
+ * Safari has a long history of ignoring/partially-supporting the `download`
+ * attribute, so on Safari the blob is also opened in a new tab as a manual
+ * "Save As" fallback. Returns 'download' so the caller can show feedback.
+ */
 export function downloadProjectFile(project) {
+  const filename = `${sanitizeFileName(project.name || 'lightstage-project')}.lightstage.json`;
   const json = serializeProject(project);
+
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${sanitizeFileName(project.name || 'lightstage-project')}.lightstage.json`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
+  // Safari has a long history of ignoring/partially-supporting the `download`
+  // attribute; give Safari users a manual "Save As" path via a new tab too.
+  // (Other browsers already handled the download above — no need to also pop a tab.)
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  if (isSafari) window.open(url, '_blank');
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return 'download';
 }
 
 function sanitizeFileName(name) {

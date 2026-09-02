@@ -3,7 +3,9 @@ import { LightingEngine } from './lighting/LightingEngine.js';
 import { StageRenderer } from './stage/StageRenderer.js';
 import { generateShow } from './lighting/ShowGenerator.js';
 import { STYLE_IDS, STYLES } from './lighting/stylePresets.js';
-import { createFixture } from './fixtures/Fixture.js';
+import { createFixture, inferRole } from './fixtures/Fixture.js';
+import { showToast, showConfirm } from './ui/Toast.js';
+import { openTutorial } from './ui/Tutorial.js';
 import {
   createDefaultProject, downloadProjectFile, readProjectFile,
 } from './project/ProjectManager.js';
@@ -11,8 +13,9 @@ import { renderFixtureList } from './ui/FixturePanel.js';
 import { renderProperties } from './ui/PropertiesPanel.js';
 import { renderSceneList } from './ui/SceneList.js';
 import { renderRuleList, openRuleModal } from './ui/RuleBuilder.js';
-import { renderGroupList, openGroupModal } from './ui/GroupPanel.js';
-import { TimelineView } from './ui/Timeline.js';
+import { renderGroupList, openGroupModal, openAssignGroupsModal } from './ui/GroupPanel.js';
+import { createCustomGroup } from './lighting/Groups.js';
+import { TimelineView, renderTimelineLegend } from './ui/Timeline.js';
 
 // Maps AudioAnalyzer's onProgress `stage` names to the checklist's pipeline order
 // (see index.html #analysis-checklist data-order attributes).
@@ -114,10 +117,11 @@ export class App {
       this._stageRenderer.onFixtureClick = (id) => this.selectFixture(id);
       this._stageRenderer.onFixtureMoved = (id, pos) => {
         const f = this.project.fixtures.find((x) => x.id === id);
-        if (f) { f.position = pos; this._refreshProperties(); }
+        if (f) { f.position = pos; f.role = inferRole(pos); this._refreshProperties(); this._refreshGroups(); }
       };
       this._timeline = new TimelineView(document.getElementById('timeline-canvas'));
       this._timeline.onSeek = (t) => this._seek(t);
+      renderTimelineLegend(document.getElementById('timeline-legend'));
       window.addEventListener('resize', () => { this._stageRenderer.resize(); this._timeline.resize(); });
       this._startRenderLoop();
     }
@@ -126,28 +130,42 @@ export class App {
     this._stageRenderer.resize();
     this._timeline.resize();
     this._refreshAll();
+
+    try {
+      if (!localStorage.getItem('lightstage_seen_tutorial')) {
+        localStorage.setItem('lightstage_seen_tutorial', '1');
+        openTutorial();
+      }
+    } catch (e) {
+      // localStorage can throw in privacy mode / restrictive embeds — the
+      // tutorial just won't auto-open then; it's still reachable via Help.
+    }
   }
 
   // =========================================================================
   // Editor shell (menubar, palette, transport)
   // =========================================================================
   _bindEditorShell() {
-    document.getElementById('menu-new').addEventListener('click', () => {
-      if (confirm('Start a new project? Unsaved changes will be lost.')) {
+    document.getElementById('menu-new').addEventListener('click', async () => {
+      if (await showConfirm('Start a new project? Unsaved changes will be lost.', { confirmLabel: 'Start New' })) {
         this.project = createDefaultProject();
         this.audioEngine.stop();
         this.lightingEngine = new LightingEngine();
         this.selectedFixtureId = null;
         this._refreshAll();
+        showToast('New project started', { type: 'success' });
       }
     });
 
-    document.getElementById('menu-save').addEventListener('click', () => downloadProjectFile(this.project));
+    document.getElementById('menu-save').addEventListener('click', () => {
+      downloadProjectFile(this.project);
+      showToast('Project file ready — check your downloads (or the new tab that opened on Safari)', { type: 'success', durationMs: 4000 });
+    });
 
     const openInput = document.createElement('input');
     openInput.type = 'file';
     openInput.accept = '.json,application/json';
-    openInput.hidden = true;
+    openInput.className = 'visually-hidden-input';
     document.body.appendChild(openInput);
     document.getElementById('menu-load').addEventListener('click', () => openInput.click());
     openInput.addEventListener('change', async () => {
@@ -162,12 +180,14 @@ export class App {
         this.audioEngine.stop();
       }
       this._enterEditor();
+      showToast(`Opened "${project.name || 'project'}"`, { type: 'success' });
+      openInput.value = '';
     });
 
     const audioInput = document.createElement('input');
     audioInput.type = 'file';
     audioInput.accept = 'audio/*';
-    audioInput.hidden = true;
+    audioInput.className = 'visually-hidden-input';
     document.body.appendChild(audioInput);
     document.getElementById('menu-import-audio').addEventListener('click', () => audioInput.click());
     audioInput.addEventListener('change', async () => {
@@ -177,20 +197,32 @@ export class App {
       this.project.timeline = [];
       this.lightingEngine.resetClock(0);
       this._refreshAll();
-      alert('Song imported and analyzed. Click "Generate Show" when ready.');
+      showToast('Song imported and analyzed. Click "Generate Show" when ready.', { type: 'success', durationMs: 4000 });
+      audioInput.value = '';
     });
 
     document.getElementById('menu-generate').addEventListener('click', () => {
-      if (!this.project.audio) { alert('Import a song first (File → Import Audio).'); return; }
+      if (!this.project.audio) { showToast('Import a song first (Import Audio in the menu bar).', { type: 'error' }); return; }
       this._applyGeneratedShow(this.project.style);
       this._refreshAll();
+      showToast(`Show generated — ${this.project.timeline.length} cues across the song`, { type: 'success' });
     });
 
-    document.getElementById('menu-advanced-toggle').addEventListener('click', () => {
+    const advancedBtn = document.getElementById('menu-advanced-toggle');
+    advancedBtn.addEventListener('click', () => {
       this.advancedMode = !this.advancedMode;
-      document.getElementById('groups-section').classList.toggle('hidden', !this.advancedMode);
-      document.getElementById('rules-section').classList.toggle('hidden', !this.advancedMode);
+      advancedBtn.classList.toggle('active', this.advancedMode);
+      const groupsSection = document.getElementById('groups-section');
+      const rulesSection = document.getElementById('rules-section');
+      groupsSection.classList.toggle('hidden', !this.advancedMode);
+      rulesSection.classList.toggle('hidden', !this.advancedMode);
+      if (this.advancedMode) {
+        groupsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        rulesSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     });
+
+    document.getElementById('menu-help').addEventListener('click', () => openTutorial());
 
     document.querySelectorAll('.palette-btn').forEach((btn) => {
       btn.addEventListener('click', () => this._addFixture(btn.dataset.type));
@@ -236,10 +268,15 @@ export class App {
 
   _applyGeneratedShow(styleId) {
     const analysis = this.project.audio?.analysis || this.audioEngine.analysis;
+    // Drop the previous auto-generated scenes (whatever the old timeline referenced)
+    // before merging in the new batch, so regenerating or switching styles doesn't
+    // pile up duplicate "Style · section" entries in the Scenes list every time.
+    const staleIds = new Set((this.project.timeline || []).map((cue) => cue.sceneId));
+    const keptScenes = Object.fromEntries(Object.entries(this.project.scenes).filter(([id]) => !staleIds.has(id)));
     const { scenes, timeline } = generateShow(analysis, styleId);
     // Keep the hand-authored scene library so users can still apply those manually,
     // and merge in the freshly generated cues/scenes for this style.
-    this.project.scenes = { ...this.project.scenes, ...scenes };
+    this.project.scenes = { ...keptScenes, ...scenes };
     this.project.timeline = timeline;
     this.project.style = styleId;
     this.lightingEngine.clearSceneOverride();
@@ -259,6 +296,7 @@ export class App {
     this.project.fixtures.push(fixture);
     this.selectedFixtureId = fixture.id;
     this._refreshFixtures();
+    this._refreshProperties();
   }
 
   selectFixture(id) {
@@ -301,6 +339,23 @@ export class App {
         this._refreshFixtures();
         this._refreshProperties();
       },
+      onAssignGroups: (id) => {
+        const fixture = this.project.fixtures.find((x) => x.id === id);
+        openAssignGroupsModal(fixture, this.project.customGroups, {
+          onToggle: (groupId, checked) => {
+            const group = this.project.customGroups.find((g) => g.id === groupId);
+            if (!group) return;
+            if (checked && !group.fixtureIds.includes(id)) group.fixtureIds.push(id);
+            else if (!checked) group.fixtureIds = group.fixtureIds.filter((fid) => fid !== id);
+            this._refreshGroups();
+          },
+          onCreateGroup: (name) => {
+            this.project.customGroups.push(createCustomGroup(name, [id]));
+            this._refreshGroups();
+            showToast(`Group "${name}" created`, { type: 'success' });
+          },
+        });
+      },
     });
     this._stageRenderer?.syncFixtures(this.project.fixtures);
   }
@@ -308,7 +363,15 @@ export class App {
   _refreshProperties() {
     const fixture = this.project.fixtures.find((f) => f.id === this.selectedFixtureId) || null;
     renderProperties(document.getElementById('properties-panel'), fixture, {
-      onChange: (patch) => { Object.assign(fixture, patch); this._refreshFixtures(); },
+      onChange: (patch) => {
+        Object.assign(fixture, patch);
+        if (patch.position) {
+          fixture.role = inferRole(fixture.position);
+          this._refreshGroups();
+          this._refreshProperties();
+        }
+        this._refreshFixtures();
+      },
       onOverride: (key, value) => {
         if (!fixture.override) fixture.override = {};
         if (value == null) delete fixture.override[key];
@@ -328,7 +391,20 @@ export class App {
   }
 
   _refreshGroups() {
-    renderGroupList(document.getElementById('group-list'), this.project.fixtures, this.project.customGroups);
+    renderGroupList(document.getElementById('group-list'), this.project.fixtures, this.project.customGroups, {
+      onEdit: (groupId) => {
+        const group = this.project.customGroups.find((g) => g.id === groupId);
+        openGroupModal(this.project.fixtures, (updated) => {
+          const i = this.project.customGroups.findIndex((g) => g.id === updated.id);
+          this.project.customGroups[i] = updated;
+          this._refreshGroups();
+        }, group);
+      },
+      onDelete: (groupId) => {
+        this.project.customGroups = this.project.customGroups.filter((g) => g.id !== groupId);
+        this._refreshGroups();
+      },
+    });
   }
 
   _refreshRules() {

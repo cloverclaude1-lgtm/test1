@@ -20,7 +20,7 @@
           <div class="dropzone-sub">or</div>
           <button id="btn-add-song" class="btn btn-primary">+ Add Song</button>
           <button id="btn-demo-song" class="btn btn-ghost">Use Demo Song</button>
-          <input id="file-input" type="file" accept="audio/*" hidden />
+          <input id="file-input" type="file" accept="audio/*" class="visually-hidden-input" />
         </div>
 
         <div id="song-info" class="song-info hidden">
@@ -55,7 +55,7 @@
       <header class="menubar">
         <div class="menubar-left">
           <span class="brand">✦ LightStage</span>
-          <button class="menu-item" id="menu-new">File</button>
+          <button class="menu-item" id="menu-new" title="Reset to a blank project">New Project</button>
           <button class="menu-item" id="menu-save">Save Project</button>
           <button class="menu-item" id="menu-load">Open Project</button>
           <button class="menu-item" id="menu-import-audio">Import Audio</button>
@@ -64,6 +64,7 @@
           <select id="style-select" class="style-select"></select>
           <button id="menu-generate" class="btn btn-primary small">Generate Show</button>
           <button id="menu-advanced-toggle" class="btn btn-ghost small">Advanced ▾</button>
+          <button id="menu-help" class="btn btn-ghost small" title="How to use LightStage">🎓 Help</button>
         </div>
       </header>
 
@@ -116,6 +117,7 @@
           <button id="btn-play" class="transport-btn">▶</button>
           <button id="btn-stop" class="transport-btn">■</button>
           <span id="time-display" class="time-display">00:00 / 00:00</span>
+          <div id="timeline-legend" class="timeline-legend"></div>
         </div>
         <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
       </footer>

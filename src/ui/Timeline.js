@@ -6,9 +6,34 @@
 // later without changing this renderer's contract.
 // ---------------------------------------------------------------------------
 
-const SECTION_COLORS = {
+export const SECTION_COLORS = {
   intro: '#3a6ea8', buildup: '#c98a2e', drop: '#e0348f', chorus: '#7c5cff', verse: '#34a891', outro: '#555b6e',
 };
+
+/** Renders a static legend (once) explaining the timeline's lanes and colors. */
+export function renderTimelineLegend(container) {
+  container.innerHTML = '';
+  const items = [
+    { swatchClass: 'line', color: '#7c5cff', label: 'Energy' },
+    ...Object.entries(SECTION_COLORS).map(([label, color]) => ({ swatchClass: '', color, label: capitalize(label) })),
+    { swatchClass: 'tick', color: null, label: 'Beats' },
+  ];
+  for (const item of items) {
+    const el = document.createElement('span');
+    el.className = 'legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = `legend-swatch ${item.swatchClass}`;
+    if (item.color) swatch.style.background = item.color;
+    el.append(swatch, item.label);
+    container.appendChild(el);
+  }
+  const hint = document.createElement('span');
+  hint.className = 'legend-item';
+  hint.textContent = '· click timeline to seek';
+  container.appendChild(hint);
+}
+
+function capitalize(s) { return s[0].toUpperCase() + s.slice(1); }
 
 export class TimelineView {
   constructor(canvas) {

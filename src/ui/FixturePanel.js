@@ -25,9 +25,10 @@ export function renderFixtureList(container, fixtures, selectedId, callbacks) {
     actions.className = 'fixture-row-actions';
 
     const toggleBtn = iconButton(fixture.enabled ? '👁' : '🚫', 'Enable/disable', () => callbacks.onToggleEnabled(fixture.id));
+    const groupBtn = iconButton('🏷', 'Assign to groups', () => callbacks.onAssignGroups(fixture.id));
     const dupBtn = iconButton('⧉', 'Duplicate', () => callbacks.onDuplicate(fixture.id));
     const delBtn = iconButton('✕', 'Delete', () => callbacks.onDelete(fixture.id));
-    actions.append(toggleBtn, dupBtn, delBtn);
+    actions.append(toggleBtn, groupBtn, dupBtn, delBtn);
     row.appendChild(actions);
 
     container.appendChild(row);

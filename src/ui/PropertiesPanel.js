@@ -1,5 +1,15 @@
 import { fixtureCapabilities } from '../fixtures/Fixture.js';
 
+// Same truss coordinate scheme as ProjectManager.js's defaultRig() — x/z only,
+// so a fixture's current height (Y) is preserved when snapping it into place.
+const QUICK_POSITION_SLOTS = {
+  front: { x: 0, z: 2.5 },
+  back: { x: 0, z: -4.5 },
+  left: { x: -6.5, z: 2.5 },
+  right: { x: 6.5, z: 2.5 },
+  center: { x: 0, z: 0 },
+};
+
 function field(labelText, inputEl, valueDisplay) {
   const wrap = document.createElement('div');
   wrap.className = 'field';
@@ -43,6 +53,27 @@ export function renderProperties(container, fixture, callbacks) {
   nameInput.value = fixture.name;
   nameInput.addEventListener('change', () => callbacks.onChange({ name: nameInput.value }));
   container.appendChild(field('Name', nameInput));
+
+  // Quick position: snaps the fixture to a preset slot on the matching truss and
+  // updates its role in one click, instead of hand-editing X/Y/Z (brief ask: make
+  // fixture assignment easier). Keeps the fixture's current height (Y) unchanged.
+  const quickPosWrap = document.createElement('div');
+  quickPosWrap.className = 'field';
+  const quickPosLabel = document.createElement('label');
+  quickPosLabel.innerHTML = `Quick position <span>role: ${fixture.role}</span>`;
+  const quickPosRow = document.createElement('div');
+  quickPosRow.className = 'quick-pos-row';
+  for (const [roleLabel, slot] of Object.entries(QUICK_POSITION_SLOTS)) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-ghost tiny';
+    btn.textContent = roleLabel[0].toUpperCase() + roleLabel.slice(1);
+    btn.addEventListener('click', () => {
+      callbacks.onChange({ position: { ...fixture.position, x: slot.x, z: slot.z } });
+    });
+    quickPosRow.appendChild(btn);
+  }
+  quickPosWrap.append(quickPosLabel, quickPosRow);
+  container.appendChild(quickPosWrap);
 
   // Position
   const posRow = document.createElement('div');
