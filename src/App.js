@@ -152,8 +152,11 @@ export class App {
       this._timeline.onCueSelect = (cueId) => this._refreshCueInspector(cueId);
       this._timeline.onCueChange = () => this._refreshCueInspector(this._timeline.selectedCueId, { liveEdit: true });
       this._timeline.onSceneDropped = (sceneId, time) => this._onSceneDropped(sceneId, time);
+      this._timeline.onKeyframeSelect = (keyframeId) => this._refreshKeyframeInspector(keyframeId);
+      this._timeline.onKeyframeChange = () => this._refreshKeyframeInspector(this._timeline.selectedKeyframeId, { liveEdit: true });
       renderTimelineLegend(document.getElementById('timeline-legend'));
       this._bindCueInspector();
+      this._bindKeyframeInspector();
       window.addEventListener('resize', () => { this._stageRenderer.resize(); this._timeline.resize(); });
       this._startRenderLoop();
     }
@@ -164,7 +167,9 @@ export class App {
     this._stageRenderer.setLayout(this.project.stageLayout || 'arena');
     this._stageRenderer.resize();
     this._timeline.resize();
+    this._timeline.selectedFixtureId = this.selectedFixtureId;
     this._refreshAll();
+    this._updateAddKeyframeButton();
 
     try {
       if (!localStorage.getItem('lightstage_seen_tutorial')) {
@@ -187,8 +192,11 @@ export class App {
         this.audioEngine.stop();
         this.lightingEngine = new LightingEngine();
         this.selectedFixtureId = null;
+        if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
         this._refreshCueInspector(null);
+        this._refreshKeyframeInspector(null);
         this._refreshAll();
+        this._updateAddKeyframeButton();
         showToast('New project started', { type: 'success' });
       }
     }));
@@ -211,7 +219,9 @@ export class App {
       this.lightingEngine = new LightingEngine();
       this.selectedFixtureId = null;
       this._timeline?.clearSelection();
+      if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
       this._refreshCueInspector(null);
+      this._refreshKeyframeInspector(null);
       if (project.audio) {
         await this.audioEngine.restoreFromProject(project.audio.dataUrl, project.audio.fileName, project.audio.analysis);
       } else {
@@ -235,6 +245,7 @@ export class App {
       this.project.timeline = [];
       this.lightingEngine.resetClock(0);
       this._refreshAll();
+      this._updateAddKeyframeButton();
       showToast('Song imported and analyzed. Click "Generate Show" when ready.', { type: 'success', durationMs: 4000 });
       audioInput.value = '';
     }));
@@ -320,6 +331,10 @@ export class App {
       this.lightingEngine.resetClock(0);
       this._updatePlayButton();
     });
+
+    document.getElementById('btn-add-keyframe').addEventListener('click', safeHandler('Add Keyframe', () => {
+      this._addKeyframeForSelectedFixture();
+    }));
   }
 
   _populateStyleSelect() {
@@ -435,6 +450,57 @@ export class App {
     return id ? this.project.timeline.find((c) => c.id === id) || null : null;
   }
 
+  _bindKeyframeInspector() {
+    document.getElementById('keyframe-time-input').addEventListener('change', (e) => {
+      const { fixture, kf } = this._selectedKeyframe();
+      if (!fixture || !kf) return;
+      kf.time = Math.max(0, Math.min(this.audioEngine.duration || 0, parseFloat(e.target.value) || 0));
+      fixture.keyframes.sort((a, b) => a.time - b.time);
+      this._refreshKeyframeInspector(kf.id);
+    });
+    document.getElementById('keyframe-delete-btn').addEventListener('click', () => {
+      const { fixture, kf } = this._selectedKeyframe();
+      if (!fixture || !kf) return;
+      fixture.keyframes = fixture.keyframes.filter((k) => k.id !== kf.id);
+      this._timeline.clearKeyframeSelection();
+      this._refreshKeyframeInspector(null);
+      this._refreshProperties();
+      showToast('Keyframe deleted', { type: 'success' });
+    });
+    document.getElementById('keyframe-deselect-btn').addEventListener('click', () => {
+      this._timeline.clearKeyframeSelection();
+      this._refreshKeyframeInspector(null);
+    });
+  }
+
+  _selectedKeyframe() {
+    const fixtureId = this._timeline?.selectedFixtureId;
+    const keyframeId = this._timeline?.selectedKeyframeId;
+    const fixture = fixtureId ? this.project.fixtures.find((f) => f.id === fixtureId) : null;
+    const kf = fixture && keyframeId ? fixture.keyframes.find((k) => k.id === keyframeId) : null;
+    return { fixture: fixture || null, kf: kf || null };
+  }
+
+  _refreshKeyframeInspector(keyframeId, { liveEdit = false } = {}) {
+    if (this._timeline) this._timeline.selectedKeyframeId = keyframeId;
+    const inspector = document.getElementById('keyframe-inspector');
+    const legend = document.getElementById('timeline-legend');
+    const { fixture, kf } = this._selectedKeyframe();
+
+    if (!kf) {
+      inspector.classList.add('hidden');
+      if (!this._selectedCue()) legend.classList.remove('hidden');
+      return;
+    }
+    inspector.classList.remove('hidden');
+    legend.classList.add('hidden');
+
+    document.getElementById('keyframe-inspector-name').textContent = `🔑 ${fixture.name}`;
+    if (!liveEdit || document.activeElement?.id !== 'keyframe-time-input') {
+      document.getElementById('keyframe-time-input').value = kf.time.toFixed(2);
+    }
+  }
+
   _refreshCueInspector(cueId, { liveEdit = false } = {}) {
     if (this._timeline) this._timeline.selectedCueId = cueId;
     const inspector = document.getElementById('cue-inspector');
@@ -443,7 +509,7 @@ export class App {
 
     if (!cue) {
       inspector.classList.add('hidden');
-      legend.classList.remove('hidden');
+      if (!this._selectedKeyframe().kf) legend.classList.remove('hidden');
       return;
     }
     inspector.classList.remove('hidden');
@@ -475,8 +541,61 @@ export class App {
   selectFixture(id) {
     this.selectedFixtureId = id;
     this._stageRenderer.setSelected(id);
+    if (this._timeline) {
+      this._timeline.selectedFixtureId = id;
+      this._timeline.clearKeyframeSelection();
+    }
+    this._refreshKeyframeInspector(null);
+    this._updateAddKeyframeButton();
     this._refreshFixtures();
     this._refreshProperties();
+  }
+
+  _updateAddKeyframeButton() {
+    const btn = document.getElementById('btn-add-keyframe');
+    if (!btn) return;
+    const hasFixture = !!this.selectedFixtureId;
+    const hasSong = !!this.audioEngine.buffer;
+    btn.disabled = !(hasFixture && hasSong);
+    btn.title = !hasFixture
+      ? 'Select a fixture to add a keyframe'
+      : !hasSong
+        ? 'Import a song first'
+        : 'Capture this fixture\'s current look as a keyframe at the playhead';
+  }
+
+  _addKeyframeForSelectedFixture() {
+    const fixture = this.project.fixtures.find((f) => f.id === this.selectedFixtureId);
+    if (!fixture) { showToast('Select a fixture first', { type: 'error' }); return; }
+    if (!this.audioEngine.buffer) { showToast('Import a song first', { type: 'error' }); return; }
+    const live = this._lastComputedStates?.get(fixture.id);
+    if (!live) { showToast('Nothing to capture yet — try again in a moment', { type: 'error' }); return; }
+    const time = this.audioEngine.currentTime;
+    const state = {
+      intensity: live.intensity,
+      color: { ...live.color },
+      pan: live.pan,
+      tilt: live.tilt,
+      zoom: live.zoom,
+      strobe: live.strobe,
+    };
+    // Editing a keyframe already at (roughly) this instant updates it in place instead
+    // of stacking a near-duplicate right next to it.
+    const existing = fixture.keyframes.find((kf) => Math.abs(kf.time - time) < 0.05);
+    let kf;
+    if (existing) {
+      existing.state = state;
+      kf = existing;
+    } else {
+      kf = { id: `kf_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4).toString(36)}`, time, state };
+      fixture.keyframes.push(kf);
+    }
+    fixture.keyframes.sort((a, b) => a.time - b.time);
+    this._timeline.selectedFixtureId = fixture.id;
+    this._timeline.selectedKeyframeId = kf.id;
+    this._refreshKeyframeInspector(kf.id);
+    this._refreshProperties();
+    showToast(existing ? 'Keyframe updated' : 'Keyframe added', { type: 'success' });
   }
 
   // =========================================================================
@@ -508,7 +627,12 @@ export class App {
       },
       onDelete: (id) => {
         this.project.fixtures = this.project.fixtures.filter((x) => x.id !== id);
-        if (this.selectedFixtureId === id) this.selectedFixtureId = null;
+        if (this.selectedFixtureId === id) {
+          this.selectedFixtureId = null;
+          if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
+          this._refreshKeyframeInspector(null);
+          this._updateAddKeyframeButton();
+        }
         this._refreshFixtures();
         this._refreshProperties();
       },
@@ -549,6 +673,13 @@ export class App {
         if (!fixture.override) fixture.override = {};
         if (value == null) delete fixture.override[key];
         else fixture.override[key] = value;
+      },
+      onClearKeyframes: () => {
+        fixture.keyframes = [];
+        if (this._timeline?.selectedFixtureId === fixture.id) this._timeline.clearKeyframeSelection();
+        this._refreshKeyframeInspector(null);
+        this._refreshProperties();
+        showToast('Keyframes cleared — fixture returned to the automatic show', { type: 'success' });
       },
     });
   }
@@ -616,6 +747,7 @@ export class App {
       try {
         const time = this.audioEngine.buffer ? this.audioEngine.currentTime : performance.now() / 1000;
         const states = this.lightingEngine.update(time, this.audioEngine.featureStream, this.project);
+        this._lastComputedStates = states;
         this._stageRenderer.render(states, time);
         this._timeline.draw(this.project, time, this.audioEngine.duration);
 

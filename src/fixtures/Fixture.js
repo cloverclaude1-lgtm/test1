@@ -71,6 +71,12 @@ export function createFixture(type, { position, name, id, audioReactivity } = {}
     // needing the full Rule Builder. 'none' (the default) leaves the fixture
     // entirely driven by the automatic show, same as before this field existed.
     audioReactivity: { band: 'none', mode: 'gate', threshold: 0.5, ...audioReactivity },
+    // Per-fixture keyframe track: [{ id, time, state: {intensity,color,pan,tilt,zoom,strobe} }],
+    // sorted by time. Empty = fixture behaves exactly as before (fully automatic/scene-driven).
+    // Once non-empty, LightingEngine.update() holds/interpolates/holds across these for the
+    // WHOLE song for this fixture, completely superseding the scene — see Timeline.js for the
+    // per-fixture track UI and App.js's "+ Keyframe" for how entries get captured.
+    keyframes: [],
     // Manual override layered on top of engine output each frame; null fields fall through
     // to the automatically generated / rule-driven state (brief §20: never destructive).
     override: null,

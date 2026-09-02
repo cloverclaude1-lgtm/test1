@@ -119,6 +119,25 @@ export class LightingEngine {
     const result = new Map();
 
     project.fixtures.forEach((fixture, i) => {
+      // --- Per-fixture keyframes fully take priority over the scene/cue system,
+      // even when no show has been generated yet — a keyframed fixture is always
+      // hand-driven for the whole song, per brief.
+      if (fixture.keyframes && fixture.keyframes.length > 0) {
+        const kf = interpolateKeyframes(fixture.keyframes, time);
+        let state = createDefaultFixtureState();
+        state.intensity = kf.intensity;
+        state.color = kf.color;
+        state.pan = kf.pan;
+        state.tilt = kf.tilt;
+        state.zoom = kf.zoom;
+        state.strobe = kf.strobe;
+        if (fixture.type === 'ledstrip') state.pixels = computeLedPixels(fixture, time, features, onsetEvent);
+        state = applyOverride(state, fixture.override);
+        if (fixture.enabled === false) state.intensity = 0;
+        result.set(fixture.id, state);
+        return;
+      }
+
       if (!sceneNow) {
         // No show generated yet — a faint idle wash so the rig is still visible on stage.
         const idle = createDefaultFixtureState();
@@ -293,6 +312,40 @@ export class LightingEngine {
       if (t >= 1) this.fadeState.delete(fadeKey);
     }
   }
+}
+
+/**
+ * Standard keyframe-track semantics: hold the first keyframe's values before it,
+ * interpolate between successive keyframes, hold the last keyframe's values after
+ * it. `keyframes` must be sorted by `.time` (Timeline.js/App.js keep it that way).
+ */
+function interpolateKeyframes(keyframes, time) {
+  if (time <= keyframes[0].time) return keyframes[0].state;
+  const last = keyframes[keyframes.length - 1];
+  if (time >= last.time) return last.state;
+
+  let a = keyframes[0], b = last;
+  for (let i = 0; i < keyframes.length - 1; i++) {
+    if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
+      a = keyframes[i];
+      b = keyframes[i + 1];
+      break;
+    }
+  }
+  const span = b.time - a.time;
+  const t = span > 0 ? (time - a.time) / span : 0;
+  return {
+    intensity: lerp(a.state.intensity, b.state.intensity, t),
+    color: {
+      r: lerp(a.state.color.r, b.state.color.r, t),
+      g: lerp(a.state.color.g, b.state.color.g, t),
+      b: lerp(a.state.color.b, b.state.color.b, t),
+    },
+    pan: lerp(a.state.pan, b.state.pan, t),
+    tilt: lerp(a.state.tilt, b.state.tilt, t),
+    zoom: lerp(a.state.zoom, b.state.zoom, t),
+    strobe: lerp(a.state.strobe, b.state.strobe, t),
+  };
 }
 
 function computeLedPixels(fixture, time, features, onsetEvent) {

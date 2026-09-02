@@ -109,6 +109,7 @@ export function hydrateProject(project) {
     f.position = f.position || { x: 0, y: 3, z: 0 };
     if (typeof f.enabled !== 'boolean') f.enabled = true;
     f.audioReactivity = { ...DEFAULT_AUDIO_REACTIVITY, ...(f.audioReactivity || {}) };
+    f.keyframes = Array.isArray(f.keyframes) ? f.keyframes : [];
     return f;
   });
 

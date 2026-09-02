@@ -34,6 +34,25 @@ function hexToColor(hex) {
 }
 
 /**
+ * Warns that this fixture is keyframe-driven for the whole song (per
+ * LightingEngine's keyframe-priority layer) — otherwise it's non-obvious why
+ * the fixture has stopped following the generated show.
+ */
+function keyframeNotice(fixture, onClear) {
+  const wrap = document.createElement('div');
+  wrap.className = 'field keyframe-notice';
+  const msg = document.createElement('div');
+  msg.className = 'empty-hint';
+  msg.textContent = `🔑 ${fixture.keyframes.length} keyframe${fixture.keyframes.length === 1 ? '' : 's'} — this fixture ignores the automatic show.`;
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-ghost tiny';
+  btn.textContent = 'Clear Keyframes';
+  btn.addEventListener('click', () => onClear?.());
+  wrap.append(msg, btn);
+  return wrap;
+}
+
+/**
  * Renders the manual-override controls for the selected fixture (brief §20).
  * Each row has a checkbox: checked -> a manual value overrides the automatic
  * lighting; unchecked -> the field is deleted from fixture.override and the
@@ -53,6 +72,10 @@ export function renderProperties(container, fixture, callbacks) {
   nameInput.value = fixture.name;
   nameInput.addEventListener('change', () => callbacks.onChange({ name: nameInput.value }));
   container.appendChild(field('Name', nameInput));
+
+  if (fixture.keyframes?.length > 0) {
+    container.appendChild(keyframeNotice(fixture, callbacks.onClearKeyframes));
+  }
 
   // Quick position: snaps the fixture to a preset slot on the matching truss and
   // updates its role in one click, instead of hand-editing X/Y/Z (brief ask: make
