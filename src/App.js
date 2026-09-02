@@ -232,8 +232,11 @@ export class App {
 
     document.getElementById('menu-help').addEventListener('click', () => openTutorial());
 
-    document.getElementById('preview-mode-toggle').addEventListener('change', (e) => {
-      this._stageRenderer.setPreviewMode(e.target.checked);
+    const previewBtn = document.getElementById('preview-mode-toggle');
+    previewBtn.addEventListener('click', () => {
+      const enabled = !previewBtn.classList.contains('active');
+      previewBtn.classList.toggle('active', enabled);
+      this._stageRenderer.setPreviewMode(enabled);
     });
 
     document.getElementById('default-reactivity-select').addEventListener('change', (e) => {
