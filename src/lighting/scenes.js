@@ -49,18 +49,6 @@ export function createScene(name, groups, reactions = {}, transition = {}) {
 /** A handful of ready-made scenes users can apply manually (brief §15 examples). */
 export function builtinSceneLibrary() {
   return [
-    createScene('Blue Atmosphere', {
-      front: { intensity: 0.2, color: { r: 0.15, g: 0.35, b: 1 }, movement: 'slow', strobe: 0 },
-      back: { intensity: 0.4, color: { r: 0.1, g: 0.25, b: 0.9 }, movement: 'slow', strobe: 0 },
-      center: { intensity: 0.25, color: { r: 0.2, g: 0.4, b: 1 }, movement: 'static', strobe: 0 },
-    }, {}, { type: 'fade', duration: 3 }),
-
-    createScene('Warm Verse', {
-      front: { intensity: 0.35, color: { r: 1, g: 0.65, b: 0.35 }, movement: 'slow', strobe: 0 },
-      back: { intensity: 0.3, color: { r: 0.9, g: 0.4, b: 0.2 }, movement: 'static', strobe: 0 },
-      center: { intensity: 0.3, color: { r: 1, g: 0.7, b: 0.4 }, movement: 'slow', strobe: 0 },
-    }, { bassPulseGroups: ['front'], bassPulseAmount: 0.3 }, { type: 'fade', duration: 2.5 }),
-
     createScene('Drop', {
       front: { intensity: 1, color: { r: 1, g: 1, b: 1 }, movement: 'chaos', strobe: 0.3 },
       back: { intensity: 1, color: { r: 0.4, g: 0.8, b: 1 }, movement: 'chaos', strobe: 0.2 },
@@ -72,39 +60,6 @@ export function builtinSceneLibrary() {
       bassPulseGroups: ['front', 'back'],
       bassPulseAmount: 0.8,
     }, { type: 'instant', duration: 0.15 }),
-
-    createScene('Chorus Bloom', {
-      front: { intensity: 0.75, color: { r: 1, g: 0.2, b: 0.6 }, movement: 'medium', strobe: 0 },
-      back: { intensity: 0.7, color: { r: 0.3, g: 0.6, b: 1 }, movement: 'medium', strobe: 0 },
-      center: { intensity: 0.7, color: { r: 1, g: 0.4, b: 0.8 }, movement: 'medium', strobe: 0 },
-    }, { beatFlashGroups: ['par'], beatFlashAmount: 0.5, bassPulseGroups: ['back'], bassPulseAmount: 0.4 },
-      { type: 'crossfade', duration: 1.5 }),
-
-    // Slow left-right pan sweep + every fixture dimming/brightening in unison,
-    // like the whole rig is breathing. spread: 0 on the pulse keeps it synchronized.
-    createScene('Breathing', {
-      front: { intensity: 0.45, color: { r: 0.3, g: 0.4, b: 0.95 }, movement: 'slow', strobe: 0, pulse: { rate: 0.12, depth: 0.55, spread: 0 } },
-      back: { intensity: 0.4, color: { r: 0.35, g: 0.3, b: 0.9 }, movement: 'slow', strobe: 0, pulse: { rate: 0.12, depth: 0.5, spread: 0 } },
-      center: { intensity: 0.4, color: { r: 0.35, g: 0.35, b: 0.95 }, movement: 'slow', strobe: 0, pulse: { rate: 0.12, depth: 0.5, spread: 0 } },
-    }, { bassPulseGroups: ['front'], bassPulseAmount: 0.2 }, { type: 'fade', duration: 3.5 }),
-
-    // A quicker, punchier pulse — like a pulse/thump rather than a slow breath.
-    createScene('Heartbeat', {
-      front: { intensity: 0.5, color: { r: 0.95, g: 0.15, b: 0.2 }, movement: 'static', strobe: 0, pulse: { rate: 1.2, depth: 0.65, spread: 0 } },
-      back: { intensity: 0.4, color: { r: 0.7, g: 0.1, b: 0.15 }, movement: 'static', strobe: 0, pulse: { rate: 1.2, depth: 0.55, spread: 0 } },
-      center: { intensity: 0.45, color: { r: 1, g: 0.2, b: 0.25 }, movement: 'static', strobe: 0, pulse: { rate: 1.2, depth: 0.6, spread: 0 } },
-    }, { beatFlashGroups: ['par', 'movinghead'], beatFlashAmount: 0.4, bassPulseGroups: ['front'], bassPulseAmount: 0.3 },
-      { type: 'fade', duration: 1.5 }),
-
-    // Same pulse mechanic as Breathing, but `spread > 0` staggers each fixture's
-    // phase so the dim/bright pulse visibly travels across the rig left-to-right.
-    createScene('Ocean Wave', {
-      front: { intensity: 0.5, color: { r: 0.15, g: 0.55, b: 0.65 }, movement: 'slow', strobe: 0, pulse: { rate: 0.18, depth: 0.6, spread: 0.9 } },
-      back: { intensity: 0.45, color: { r: 0.1, g: 0.45, b: 0.6 }, movement: 'slow', strobe: 0, pulse: { rate: 0.18, depth: 0.55, spread: 0.9 } },
-      center: { intensity: 0.5, color: { r: 0.15, g: 0.6, b: 0.7 }, movement: 'slow', strobe: 0, pulse: { rate: 0.18, depth: 0.6, spread: 0.9 } },
-      left: { intensity: 0.45, color: { r: 0.1, g: 0.5, b: 0.65 }, movement: 'slow', strobe: 0, pulse: { rate: 0.18, depth: 0.55, spread: 0.9 } },
-      right: { intensity: 0.45, color: { r: 0.15, g: 0.55, b: 0.65 }, movement: 'slow', strobe: 0, pulse: { rate: 0.18, depth: 0.55, spread: 0.9 } },
-    }, {}, { type: 'crossfade', duration: 3 }),
 
     // colorCycle with spread > 0 gives each fixture a different instantaneous hue
     // while they all keep cycling — a rainbow that visibly moves across the rig.
@@ -149,13 +104,6 @@ export function builtinSceneLibrary() {
     }, { beatFlashGroups: ['movinghead', 'par', 'strobe'], beatFlashAmount: 1, bassPulseGroups: ['front'], bassPulseAmount: 0.3 },
       { type: 'instant', duration: 0.1 }),
 
-    // Warm, static, atmospheric — a daylight-fading complement to Blue Atmosphere.
-    createScene('Sunset Glow', {
-      front: { intensity: 0.4, color: { r: 1, g: 0.5, b: 0.25 }, movement: 'slow', strobe: 0 },
-      back: { intensity: 0.35, color: { r: 0.9, g: 0.25, b: 0.45 }, movement: 'static', strobe: 0 },
-      center: { intensity: 0.35, color: { r: 1, g: 0.55, b: 0.3 }, movement: 'slow', strobe: 0 },
-    }, { bassPulseGroups: ['back'], bassPulseAmount: 0.25 }, { type: 'fade', duration: 4 }),
-
     // Cool white/blue fast sweeping movement, low color variety — reads as
     // searchlights scanning the crowd/venue.
     createScene('Spotlight Search', {
@@ -164,11 +112,30 @@ export function builtinSceneLibrary() {
       center: { intensity: 0.5, color: { r: 0.85, g: 0.9, b: 1 }, movement: 'fast', strobe: 0 },
     }, {}, { type: 'fade', duration: 2 }),
 
-    // Very low, soft, pastel — background ambience for a quiet moment.
-    createScene('Chill Wash', {
-      front: { intensity: 0.15, color: { r: 0.4, g: 0.55, b: 0.6 }, movement: 'static', strobe: 0 },
-      back: { intensity: 0.18, color: { r: 0.45, g: 0.4, b: 0.6 }, movement: 'static', strobe: 0 },
-      center: { intensity: 0.15, color: { r: 0.5, g: 0.5, b: 0.65 }, movement: 'static', strobe: 0 },
-    }, {}, { type: 'fade', duration: 5 }),
+    // A single bright, held beam on center stage with everything else dimmed
+    // down — reads as one performer picked out of the dark.
+    createScene('Center Spotlight', {
+      front: { intensity: 0.1, color: { r: 0.7, g: 0.75, b: 0.85 }, movement: 'static', strobe: 0 },
+      back: { intensity: 0.08, color: { r: 0.6, g: 0.65, b: 0.8 }, movement: 'static', strobe: 0 },
+      center: { intensity: 0.95, color: { r: 0.9, g: 0.92, b: 1 }, movement: 'slow', strobe: 0 },
+    }, {}, { type: 'fade', duration: 2 }),
+
+    // Calmer and wider than Spotlight Search — beams swept outward over the
+    // crowd rather than scanning erratically.
+    createScene('Audience Sweep', {
+      front: { intensity: 0.5, color: { r: 0.8, g: 0.88, b: 1 }, movement: 'medium', strobe: 0 },
+      back: { intensity: 0.25, color: { r: 0.7, g: 0.78, b: 0.95 }, movement: 'medium', strobe: 0 },
+      center: { intensity: 0.3, color: { r: 0.8, g: 0.85, b: 1 }, movement: 'medium', strobe: 0 },
+      left: { intensity: 0.5, color: { r: 0.75, g: 0.85, b: 1 }, movement: 'medium', strobe: 0 },
+      right: { intensity: 0.5, color: { r: 0.75, g: 0.85, b: 1 }, movement: 'medium', strobe: 0 },
+    }, {}, { type: 'fade', duration: 2.5 }),
+
+    // One dominant beam that snaps to a new spot and holds — hunting rather
+    // than continuously sweeping. `chaos` gives the discrete random jumps.
+    createScene('Roaming Spot', {
+      front: { intensity: 0.15, color: { r: 0.7, g: 0.75, b: 0.85 }, movement: 'static', strobe: 0 },
+      back: { intensity: 0.1, color: { r: 0.6, g: 0.65, b: 0.8 }, movement: 'static', strobe: 0 },
+      center: { intensity: 0.95, color: { r: 0.85, g: 0.9, b: 1 }, movement: 'chaos', strobe: 0 },
+    }, {}, { type: 'fade', duration: 1.5 }),
   ];
 }
