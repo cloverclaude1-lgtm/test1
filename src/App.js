@@ -55,9 +55,11 @@ export class App {
     this.selectedStyle = 'edm';
     this.advancedMode = false;
     this._defaultReactivityBand = 'none';
+    this._clipboard = null;
 
     this._bindOnboarding();
     this._bindEditorShell();
+    this._bindKeyboardShortcuts();
     this._fpsSamples = [];
   }
 
@@ -337,6 +339,60 @@ export class App {
     }));
   }
 
+  // =========================================================================
+  // Keyboard shortcuts: Delete/Backspace removes the current selection,
+  // Ctrl/Cmd+C / Ctrl/Cmd+V copy-pastes the selected cue or fixture.
+  // =========================================================================
+  _bindKeyboardShortcuts() {
+    window.addEventListener('keydown', (e) => {
+      const target = e.target;
+      if (target && (target.matches?.('input, textarea, select') || target.isContentEditable)) return;
+      if (document.querySelector('.modal-backdrop')) return;
+      if (!this._timeline) return;
+
+      const isMod = e.ctrlKey || e.metaKey;
+
+      if (!isMod && (e.key === 'Delete' || e.key === 'Backspace')) {
+        if (this._timeline.selectedKeyframeId) { e.preventDefault(); this._deleteSelectedKeyframe(); }
+        else if (this._timeline.selectedCueId) { e.preventDefault(); this._deleteSelectedCue(); }
+        else if (this.selectedFixtureId) { e.preventDefault(); this._deleteFixture(this.selectedFixtureId); }
+        return;
+      }
+
+      if (isMod && e.key.toLowerCase() === 'c') {
+        const cue = this._selectedCue();
+        const fixture = this.project.fixtures.find((f) => f.id === this.selectedFixtureId);
+        if (cue) {
+          this._clipboard = { type: 'cue', sceneId: cue.sceneId };
+          e.preventDefault();
+        } else if (fixture) {
+          this._clipboard = {
+            type: 'fixture',
+            snapshot: {
+              type: fixture.type,
+              position: { ...fixture.position },
+              name: fixture.name,
+              params: { ...fixture.params },
+              audioReactivity: fixture.audioReactivity ? { ...fixture.audioReactivity } : undefined,
+            },
+          };
+          e.preventDefault();
+        }
+        return;
+      }
+
+      if (isMod && e.key.toLowerCase() === 'v') {
+        if (this._clipboard?.type === 'cue') {
+          e.preventDefault();
+          this._onSceneDropped(this._clipboard.sceneId, this.audioEngine.currentTime);
+        } else if (this._clipboard?.type === 'fixture') {
+          e.preventDefault();
+          this._pasteFixture();
+        }
+      }
+    });
+  }
+
   _populateStyleSelect() {
     const select = document.getElementById('style-select');
     select.innerHTML = STYLE_IDS.map((id) => `<option value="${id}">${STYLES[id].label}</option>`).join('');
@@ -471,14 +527,7 @@ export class App {
       cue.endTime = Math.min(maxEnd, this.audioEngine.duration, cue.startTime + newDuration);
       this._refreshCueInspector(cue.id);
     });
-    document.getElementById('cue-delete-btn').addEventListener('click', () => {
-      const cue = this._selectedCue();
-      if (!cue) return;
-      this.project.timeline = this.project.timeline.filter((c) => c.id !== cue.id);
-      this._timeline.clearSelection();
-      this._refreshCueInspector(null);
-      showToast('Cue deleted', { type: 'success' });
-    });
+    document.getElementById('cue-delete-btn').addEventListener('click', () => this._deleteSelectedCue());
     document.getElementById('cue-deselect-btn').addEventListener('click', () => {
       this._timeline.clearSelection();
       this._refreshCueInspector(null);
@@ -490,6 +539,15 @@ export class App {
     return id ? this.project.timeline.find((c) => c.id === id) || null : null;
   }
 
+  _deleteSelectedCue() {
+    const cue = this._selectedCue();
+    if (!cue) return;
+    this.project.timeline = this.project.timeline.filter((c) => c.id !== cue.id);
+    this._timeline.clearSelection();
+    this._refreshCueInspector(null);
+    showToast('Cue deleted', { type: 'success' });
+  }
+
   _bindKeyframeInspector() {
     document.getElementById('keyframe-time-input').addEventListener('change', (e) => {
       const { fixture, kf } = this._selectedKeyframe();
@@ -498,15 +556,7 @@ export class App {
       fixture.keyframes.sort((a, b) => a.time - b.time);
       this._refreshKeyframeInspector(kf.id);
     });
-    document.getElementById('keyframe-delete-btn').addEventListener('click', () => {
-      const { fixture, kf } = this._selectedKeyframe();
-      if (!fixture || !kf) return;
-      fixture.keyframes = fixture.keyframes.filter((k) => k.id !== kf.id);
-      this._timeline.clearKeyframeSelection();
-      this._refreshKeyframeInspector(null);
-      this._refreshProperties();
-      showToast('Keyframe deleted', { type: 'success' });
-    });
+    document.getElementById('keyframe-delete-btn').addEventListener('click', () => this._deleteSelectedKeyframe());
     document.getElementById('keyframe-deselect-btn').addEventListener('click', () => {
       this._timeline.clearKeyframeSelection();
       this._refreshKeyframeInspector(null);
@@ -519,6 +569,16 @@ export class App {
     const fixture = fixtureId ? this.project.fixtures.find((f) => f.id === fixtureId) : null;
     const kf = fixture && keyframeId ? fixture.keyframes.find((k) => k.id === keyframeId) : null;
     return { fixture: fixture || null, kf: kf || null };
+  }
+
+  _deleteSelectedKeyframe() {
+    const { fixture, kf } = this._selectedKeyframe();
+    if (!fixture || !kf) return;
+    fixture.keyframes = fixture.keyframes.filter((k) => k.id !== kf.id);
+    this._timeline.clearKeyframeSelection();
+    this._refreshKeyframeInspector(null);
+    this._refreshProperties();
+    showToast('Keyframe deleted', { type: 'success' });
   }
 
   _refreshKeyframeInspector(keyframeId, { liveEdit = false } = {}) {
@@ -576,6 +636,32 @@ export class App {
     this.selectedFixtureId = fixture.id;
     this._refreshFixtures();
     this._refreshProperties();
+  }
+
+  _deleteFixture(id) {
+    this.project.fixtures = this.project.fixtures.filter((x) => x.id !== id);
+    if (this.selectedFixtureId === id) {
+      this.selectedFixtureId = null;
+      if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
+      this._refreshKeyframeInspector(null);
+      this._updateAddKeyframeButton();
+    }
+    this._refreshFixtures();
+    this._refreshProperties();
+  }
+
+  _pasteFixture() {
+    const snapshot = this._clipboard?.snapshot;
+    if (!snapshot) return;
+    const copy = createFixture(snapshot.type, {
+      position: { x: snapshot.position.x + 0.5, y: snapshot.position.y, z: snapshot.position.z + 0.5 },
+      name: `${snapshot.name} copy`,
+      audioReactivity: snapshot.audioReactivity ? { ...snapshot.audioReactivity } : undefined,
+    });
+    copy.params = { ...snapshot.params };
+    this.project.fixtures.push(copy);
+    this.selectFixture(copy.id);
+    showToast('Fixture pasted', { type: 'success' });
   }
 
   selectFixture(id) {
@@ -665,17 +751,7 @@ export class App {
         this.project.fixtures.push(copy);
         this._refreshFixtures();
       },
-      onDelete: (id) => {
-        this.project.fixtures = this.project.fixtures.filter((x) => x.id !== id);
-        if (this.selectedFixtureId === id) {
-          this.selectedFixtureId = null;
-          if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
-          this._refreshKeyframeInspector(null);
-          this._updateAddKeyframeButton();
-        }
-        this._refreshFixtures();
-        this._refreshProperties();
-      },
+      onDelete: (id) => this._deleteFixture(id),
       onAssignGroups: (id) => {
         const fixture = this.project.fixtures.find((x) => x.id === id);
         openAssignGroupsModal(fixture, this.project.customGroups, {

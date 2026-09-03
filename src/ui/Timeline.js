@@ -82,11 +82,14 @@ export class TimelineView {
     this.selectedKeyframeId = null;
     this.selectedFixtureId = null; // set by App.js whenever fixture selection changes
     this._drag = null;
+    this._hoverCueId = null;
+    this._hoverEdge = null; // 'left' | 'right' | null — which edge (if any) is glowing
 
     canvas.addEventListener('pointerdown', this._onPointerDown.bind(this));
     canvas.addEventListener('pointermove', this._onPointerMove.bind(this));
     canvas.addEventListener('pointerup', this._onPointerUp.bind(this));
-    canvas.addEventListener('pointercancel', () => { this._drag = null; });
+    canvas.addEventListener('pointercancel', () => { this._drag = null; this._clearHover(); });
+    canvas.addEventListener('pointerleave', () => this._clearHover());
 
     canvas.addEventListener('dragover', (e) => { e.preventDefault(); canvas.classList.add('drag-over'); });
     canvas.addEventListener('dragleave', () => canvas.classList.remove('drag-over'));
@@ -169,12 +172,16 @@ export class TimelineView {
       const scene = project.scenes?.[cue.sceneId];
       const fill = colorFromScene(scene) || SECTION_COLORS[cue.label] || '#555';
       const isSelected = cue.id === this.selectedCueId;
-
-      ctx.fillStyle = fill;
-      ctx.globalAlpha = 0.85;
+      const isHovered = cue.id === this._hoverCueId;
       const radius = 4;
+
+      ctx.save();
+      if (isHovered) { ctx.shadowColor = '#ff6a1a'; ctx.shadowBlur = 12; }
+      ctx.fillStyle = fill;
+      ctx.globalAlpha = isHovered ? 1 : 0.85;
       roundRect(ctx, x0, cueY0, Math.max(2, x1 - x0 - 1), laneScenes - 8, radius);
       ctx.fill();
+      ctx.restore();
       ctx.globalAlpha = 1;
 
       if (isSelected) {
@@ -182,6 +189,16 @@ export class TimelineView {
         ctx.lineWidth = 2;
         roundRect(ctx, x0 + 1, cueY0 + 1, Math.max(2, x1 - x0 - 3), laneScenes - 10, radius);
         ctx.stroke();
+      }
+
+      if (isHovered && this._hoverEdge) {
+        const edgeX = this._hoverEdge === 'left' ? x0 : x1;
+        ctx.save();
+        ctx.shadowColor = '#ff6a1a';
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#ff6a1a';
+        ctx.fillRect(edgeX - 2, cueY0, 4, laneScenes - 8);
+        ctx.restore();
       }
 
       const text = scene?.name || cue.label || '';
@@ -358,8 +375,23 @@ export class TimelineView {
     this.canvas.setPointerCapture?.(e.pointerId);
   }
 
+  _clearHover() {
+    this._hoverCueId = null;
+    this._hoverEdge = null;
+    this.canvas.style.cursor = 'default';
+  }
+
   _onPointerMove(e) {
-    if (!this._drag || !this._duration) return;
+    if (!this._drag) {
+      const hit = this._duration ? this._hitTest(e.clientX, e.clientY) : null;
+      this._hoverCueId = hit?.type === 'cue' ? hit.cueId : null;
+      this._hoverEdge = hit?.type === 'cue' && hit.part !== 'body' ? hit.part : null;
+      this.canvas.style.cursor = hit?.type === 'cue'
+        ? (hit.part === 'body' ? 'grab' : 'ew-resize')
+        : hit?.type === 'keyframe' ? 'pointer' : 'default';
+      return;
+    }
+    if (!this._duration) return;
     const dxPx = e.clientX - this._drag.startClientX;
     if (this._drag.mode === 'seek') {
       if (Math.abs(dxPx || 0) > MOVE_THRESHOLD_PX) this._drag.moved = true;
