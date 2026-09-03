@@ -7,9 +7,9 @@
   --text-0: #f2f3f7;
   --text-1: #a8acbd;
   --text-2: #6d7180;
-  --accent: #7c5cff;
-  --accent-2: #ff4fd8;
-  --accent-3: #34e0c9;
+  --accent: #ff6a1a;
+  --accent-2: #ff9346;
+  --accent-3: #ffb347;
   --good: #34e0a1;
   --warn: #ffb84f;
   --font: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -43,8 +43,8 @@ button {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(circle at 20% 20%, rgba(124, 92, 255, 0.18), transparent 45%),
-    radial-gradient(circle at 80% 70%, rgba(255, 79, 216, 0.14), transparent 45%),
+    radial-gradient(circle at 20% 20%, rgba(255, 106, 26, 0.18), transparent 45%),
+    radial-gradient(circle at 80% 70%, rgba(255, 147, 70, 0.14), transparent 45%),
     var(--bg-0);
 }
 
@@ -88,7 +88,7 @@ button {
 }
 .dropzone.dragover {
   border-color: var(--accent);
-  background: rgba(124, 92, 255, 0.08);
+  background: rgba(255, 106, 26, 0.08);
 }
 .dropzone-icon { font-size: 32px; }
 .dropzone-title { font-size: 15px; color: var(--text-0); }
@@ -111,7 +111,7 @@ button {
 .btn.tiny { padding: 4px 10px; font-size: 11px; width: 100%; margin-top: 6px; }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent), #5a3fe0);
+  background: linear-gradient(135deg, var(--accent), #c0430a);
   border-color: transparent;
 }
 .btn-ghost { background: transparent; }
@@ -132,7 +132,7 @@ button {
   background: linear-gradient(135deg, var(--accent-2), var(--accent));
   border: none;
   color: white;
-  box-shadow: 0 10px 30px rgba(124, 92, 255, 0.35);
+  box-shadow: 0 10px 30px rgba(255, 106, 26, 0.35);
 }
 
 .song-info { margin: 20px 0 4px; text-align: left; }
@@ -171,7 +171,7 @@ button {
 .style-btn.selected {
   color: white;
   border-color: var(--accent);
-  background: linear-gradient(135deg, rgba(124,92,255,0.35), rgba(255,79,216,0.25));
+  background: linear-gradient(135deg, rgba(255,106,26,0.35), rgba(255,147,70,0.25));
 }
 
 /* ============ Editor Shell ============ */
@@ -268,7 +268,7 @@ button {
 .fixture-row.selected, .scene-row.active {
   border-color: var(--accent);
   color: var(--text-0);
-  background: rgba(124,92,255,0.12);
+  background: rgba(255,106,26,0.12);
 }
 .fixture-row-name { display: flex; align-items: center; gap: 6px; cursor: pointer; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fixture-row-actions { display: flex; gap: 4px; }
@@ -436,7 +436,7 @@ button {
 .menu-item.active, .btn.small.active {
   color: var(--text-0);
   border: 1px solid var(--accent);
-  background: rgba(124, 92, 255, 0.18);
+  background: rgba(255, 106, 26, 0.18);
 }
 
 /* Bigger touch targets on touch devices — the menubar packs several small

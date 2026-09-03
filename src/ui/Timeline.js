@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------------
 
 export const SECTION_COLORS = {
-  intro: '#3a6ea8', buildup: '#c98a2e', drop: '#e0348f', chorus: '#7c5cff', verse: '#34a891', outro: '#555b6e',
+  intro: '#3a6ea8', buildup: '#c98a2e', drop: '#e0348f', chorus: '#ff6a1a', verse: '#34a891', outro: '#555b6e',
 };
 
 const EDGE_TOLERANCE_PX = 8;
@@ -28,7 +28,7 @@ export const MIN_CUE_DURATION = 0.3;
 export function renderTimelineLegend(container) {
   container.innerHTML = '';
   const items = [
-    { swatchClass: 'line', color: '#7c5cff', label: 'Energy' },
+    { swatchClass: 'line', color: '#ff6a1a', label: 'Energy' },
     ...Object.entries(SECTION_COLORS).map(([label, color]) => ({ swatchClass: '', color, label: capitalize(label) })),
     { swatchClass: 'diamond', color: '#ffd166', label: 'Keyframes' },
     { swatchClass: 'tick', color: null, label: 'Beats' },
@@ -144,7 +144,7 @@ export class TimelineView {
     // Energy envelope
     if (analysis) {
       ctx.beginPath();
-      ctx.strokeStyle = '#7c5cff';
+      ctx.strokeStyle = '#ff6a1a';
       ctx.lineWidth = 1.2;
       const frames = analysis.frames.energy;
       const step = Math.max(1, Math.floor(frames.length / w));
