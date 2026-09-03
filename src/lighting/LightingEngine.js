@@ -123,6 +123,14 @@ export class LightingEngine {
       // even when no show has been generated yet — a keyframed fixture is always
       // hand-driven for the whole song, per brief.
       if (fixture.keyframes && fixture.keyframes.length > 0) {
+        // A keyframed fixture skips the beat-flash/fade blocks below entirely, so
+        // any envelope left over from before it became keyframed would otherwise
+        // sit frozen (never decaying) and resurface as a phantom flash the moment
+        // its keyframes are cleared and it re-enters the normal pipeline.
+        this.flashEnvelope.delete(fixture.id);
+        for (const key of [...this.fadeState.keys()]) {
+          if (key.endsWith(':' + fixture.id)) this.fadeState.delete(key);
+        }
         const kf = interpolateKeyframes(fixture.keyframes, time);
         let state = createDefaultFixtureState();
         state.intensity = kf.intensity;
@@ -241,9 +249,14 @@ export class LightingEngine {
   _applyRules(rules, fixture, state, ctx, time, customGroups) {
     for (const rule of rules) {
       const isActive = evaluateRule(rule, ctx);
-      const wasActive = this.ruleWasActive.get(rule.id) || false;
+      // Keyed per rule+fixture (like fadeState below), not just per rule — this is
+      // called once per fixture per frame with the same rule/isActive, so a per-rule
+      // key would let only the first fixture processed each frame see risingEdge,
+      // silently dropping flash/fade/changeScene for every other fixture in the group.
+      const edgeKey = rule.id + ':' + fixture.id;
+      const wasActive = this.ruleWasActive.get(edgeKey) || false;
       const risingEdge = isActive && !wasActive;
-      this.ruleWasActive.set(rule.id, isActive);
+      this.ruleWasActive.set(edgeKey, isActive);
 
       for (const action of rule.actions || []) {
         const matches = action.group ? fixtureMatchesGroup(fixture, action.group, customGroups) : false;

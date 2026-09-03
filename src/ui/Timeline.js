@@ -22,8 +22,7 @@ const EDGE_TOLERANCE_PX = 8;
 const KEYFRAME_HIT_RADIUS_PX = 9;
 const MOVE_THRESHOLD_PX = 3;
 const SNAP_PX = 8;
-const MIN_CUE_DURATION = 0.3;
-const DEFAULT_DROPPED_DURATION = 8;
+export const MIN_CUE_DURATION = 0.3;
 
 /** Renders a static legend (once) explaining the timeline's lanes and colors. */
 export function renderTimelineLegend(container) {
@@ -282,10 +281,20 @@ export class TimelineView {
       }
     }
 
-    for (const hb of this._cueHitboxes) {
+    // Iterate in reverse paint order — draw() paints project.timeline front-to-back,
+    // so the LAST cue drawn is the one visually on top when cues overlap. Picking
+    // the first (bottom-most) match here would let you click what you see and grab
+    // a different, hidden cue underneath it.
+    for (let i = this._cueHitboxes.length - 1; i >= 0; i--) {
+      const hb = this._cueHitboxes[i];
       if (y < hb.y0 - 2 || y > hb.y1 + 2 || x < hb.x0 - 2 || x > hb.x1 + 2) continue;
-      if (Math.abs(x - hb.x0) <= EDGE_TOLERANCE_PX) return { type: 'cue', cueId: hb.cueId, part: 'left' };
-      if (Math.abs(x - hb.x1) <= EDGE_TOLERANCE_PX) return { type: 'cue', cueId: hb.cueId, part: 'right' };
+      const dLeft = Math.abs(x - hb.x0);
+      const dRight = Math.abs(x - hb.x1);
+      // Pick whichever edge is actually nearer — on a narrow cue both edges can be
+      // within tolerance, and always preferring "left" made the right edge of a
+      // short cue impossible to grab.
+      if (dLeft <= EDGE_TOLERANCE_PX && dLeft <= dRight) return { type: 'cue', cueId: hb.cueId, part: 'left' };
+      if (dRight <= EDGE_TOLERANCE_PX) return { type: 'cue', cueId: hb.cueId, part: 'right' };
       return { type: 'cue', cueId: hb.cueId, part: 'body' };
     }
     return null;
@@ -327,12 +336,20 @@ export class TimelineView {
     } else if (hit?.type === 'cue') {
       const cue = (this._project.timeline || []).find((c) => c.id === hit.cueId);
       if (!cue) return;
+      // Freeze the nearest non-overlapping neighbors' edges as hard bounds for this
+      // drag so a resize/move can never push the cue over/past another one — the
+      // neighbors themselves aren't moving, so computing this once up front is safe.
+      const others = (this._project.timeline || []).filter((c) => c.id !== cue.id);
+      const leftNeighbor = others.filter((c) => c.endTime <= cue.startTime).sort((a, b) => b.endTime - a.endTime)[0];
+      const rightNeighbor = others.filter((c) => c.startTime >= cue.endTime).sort((a, b) => a.startTime - b.startTime)[0];
       this._drag = {
         mode: hit.part === 'body' ? 'move' : hit.part === 'left' ? 'resize-left' : 'resize-right',
         cueId: hit.cueId,
         startClientX: e.clientX,
         origStart: cue.startTime,
         origEnd: cue.endTime,
+        minStart: leftNeighbor ? leftNeighbor.endTime : 0,
+        maxEnd: rightNeighbor ? rightNeighbor.startTime : this._duration,
         moved: false,
       };
     } else {
@@ -368,16 +385,16 @@ export class TimelineView {
 
     if (this._drag.mode === 'resize-left') {
       let newStart = this._snapTime(this._drag.origStart + dt, { excludeCueId: cue.id });
-      newStart = Math.max(0, Math.min(newStart, cue.endTime - MIN_CUE_DURATION));
+      newStart = Math.max(this._drag.minStart, Math.min(newStart, cue.endTime - MIN_CUE_DURATION));
       cue.startTime = newStart;
     } else if (this._drag.mode === 'resize-right') {
       let newEnd = this._snapTime(this._drag.origEnd + dt, { excludeCueId: cue.id });
-      newEnd = Math.min(this._duration, Math.max(newEnd, cue.startTime + MIN_CUE_DURATION));
+      newEnd = Math.min(this._drag.maxEnd, Math.max(newEnd, cue.startTime + MIN_CUE_DURATION));
       cue.endTime = newEnd;
     } else if (this._drag.mode === 'move') {
       const span = this._drag.origEnd - this._drag.origStart;
       let newStart = this._snapTime(this._drag.origStart + dt, { excludeCueId: cue.id });
-      newStart = Math.max(0, Math.min(this._duration - span, newStart));
+      newStart = Math.max(this._drag.minStart, Math.min(this._drag.maxEnd - span, newStart));
       cue.startTime = newStart;
       cue.endTime = newStart + span;
     }
@@ -410,6 +427,10 @@ export class TimelineView {
       this.onKeyframeSelect?.(null);
       this.onSeek?.(this._pixelToTime(e.clientX));
     } else {
+      // Keep the array in time order after a resize/move so findActiveCue()'s
+      // "previous cue" (used for crossfade blending) is always the actual
+      // chronological neighbor, not just whatever array slot it happened to land in.
+      (this._project.timeline || []).sort((a, b) => a.startTime - b.startTime);
       this.selectedCueId = drag.cueId;
       this.selectedKeyframeId = null;
       this.onCueSelect?.(drag.cueId);

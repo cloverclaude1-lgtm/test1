@@ -17,7 +17,7 @@ import { renderSceneList } from './ui/SceneList.js';
 import { renderRuleList, openRuleModal } from './ui/RuleBuilder.js';
 import { renderGroupList, openGroupModal, openAssignGroupsModal } from './ui/GroupPanel.js';
 import { createCustomGroup } from './lighting/Groups.js';
-import { TimelineView, renderTimelineLegend } from './ui/Timeline.js';
+import { TimelineView, renderTimelineLegend, MIN_CUE_DURATION } from './ui/Timeline.js';
 
 // Maps AudioAnalyzer's onProgress `stage` names to the checklist's pipeline order
 // (see index.html #analysis-checklist data-order attributes).
@@ -395,8 +395,33 @@ export class App {
     const scene = this.project.scenes[sceneId];
     const duration = this.audioEngine.duration;
     if (!scene || !duration) return;
-    const endTime = Math.min(duration, time + DEFAULT_DROPPED_CUE_DURATION);
-    if (endTime - time < 0.3) return; // dropped right at the very end — no room for a cue
+    // If the drop point lands inside an existing cue, that cue gets truncated to
+    // end exactly there — like inserting a clip mid-way through another one in an
+    // editing suite — so the new cue never has to fight it for the same span.
+    const containing = this.project.timeline.find((c) => c.startTime <= time && c.endTime > time);
+    // Cap the new cue's length against whatever comes next so dropping several
+    // scenes closer together than DEFAULT_DROPPED_CUE_DURATION apart doesn't bury
+    // the later ones under the earlier one's (fixed 8s) span — a buried cue would
+    // never become "active" during playback, which read as the show never
+    // advancing past the first dropped scene.
+    const nextCue = this.project.timeline
+      .filter((c) => c !== containing && c.startTime >= time)
+      .sort((a, b) => a.startTime - b.startTime)[0];
+    const cap = Math.min(duration, nextCue ? nextCue.startTime : duration);
+    const endTime = Math.min(cap, time + DEFAULT_DROPPED_CUE_DURATION);
+    if (endTime - time < MIN_CUE_DURATION) {
+      showToast('No room for a cue there — try dropping it somewhere with more space', { type: 'error' });
+      return;
+    }
+    if (containing) {
+      // Truncating it below the minimum duration would leave a sliver cue behind —
+      // just drop it instead.
+      if (time - containing.startTime < MIN_CUE_DURATION) {
+        this.project.timeline = this.project.timeline.filter((c) => c !== containing);
+      } else {
+        containing.endTime = time;
+      }
+    }
     const cue = {
       id: makeCueId(),
       startTime: time,
@@ -406,13 +431,23 @@ export class App {
       transitionType: scene.transition?.type || 'fade',
       transitionDuration: scene.transition?.duration ?? 1.5,
     };
-    // New/edited cues go to the front so they win the linear scan in findActiveCue()
-    // when they happen to overlap something already there — "whatever I just placed
-    // applies here" is the more intuitive rule for a drag-and-drop edit.
-    this.project.timeline.unshift(cue);
+    // Keep the timeline sorted by startTime — findActiveCue() relies on array order
+    // to find the chronological "previous cue" for crossfade blending, and an
+    // unsorted array (e.g. from unshifting new cues to the front) breaks that.
+    this.project.timeline.push(cue);
+    this.project.timeline.sort((a, b) => a.startTime - b.startTime);
     this._timeline.selectedCueId = cue.id;
     this._refreshCueInspector(cue.id);
     showToast(`Placed "${scene.name}" on the timeline`, { type: 'success' });
+  }
+
+  /** Bounds a cue's neighbors impose (the nearest non-overlapping cue on each side),
+   * so typed Cue Inspector edits can't overlap them — mirrors Timeline.js's drag clamp. */
+  _cueNeighborBounds(cue) {
+    const others = this.project.timeline.filter((c) => c.id !== cue.id);
+    const left = others.filter((c) => c.endTime <= cue.startTime).sort((a, b) => b.endTime - a.endTime)[0];
+    const right = others.filter((c) => c.startTime >= cue.endTime).sort((a, b) => a.startTime - b.startTime)[0];
+    return { minStart: left ? left.endTime : 0, maxEnd: right ? right.startTime : (this.audioEngine.duration || 0) };
   }
 
   _bindCueInspector() {
@@ -420,15 +455,20 @@ export class App {
       const cue = this._selectedCue();
       if (!cue) return;
       const duration = cue.endTime - cue.startTime;
-      cue.startTime = Math.max(0, parseFloat(e.target.value) || 0);
-      cue.endTime = Math.min(this.audioEngine.duration, cue.startTime + duration);
+      const { minStart, maxEnd } = this._cueNeighborBounds(cue);
+      let newStart = Math.max(minStart, parseFloat(e.target.value) || 0);
+      newStart = Math.max(minStart, Math.min(newStart, maxEnd - MIN_CUE_DURATION));
+      cue.startTime = newStart;
+      cue.endTime = Math.min(maxEnd, this.audioEngine.duration, cue.startTime + duration);
+      this.project.timeline.sort((a, b) => a.startTime - b.startTime);
       this._refreshCueInspector(cue.id);
     });
     document.getElementById('cue-duration-input').addEventListener('change', (e) => {
       const cue = this._selectedCue();
       if (!cue) return;
-      const newDuration = Math.max(0.3, parseFloat(e.target.value) || 0.3);
-      cue.endTime = Math.min(this.audioEngine.duration, cue.startTime + newDuration);
+      const { maxEnd } = this._cueNeighborBounds(cue);
+      const newDuration = Math.max(MIN_CUE_DURATION, parseFloat(e.target.value) || MIN_CUE_DURATION);
+      cue.endTime = Math.min(maxEnd, this.audioEngine.duration, cue.startTime + newDuration);
       this._refreshCueInspector(cue.id);
     });
     document.getElementById('cue-delete-btn').addEventListener('click', () => {

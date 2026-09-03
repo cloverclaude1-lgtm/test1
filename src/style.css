@@ -260,6 +260,11 @@ button {
   color: var(--text-1);
 }
 .fixture-row:hover, .group-row:hover, .scene-row:hover { border-color: var(--border); }
+/* Without this, starting a drag on a scene row's text can be interpreted as a
+   text-selection gesture instead of the native HTML5 drag `.scene-row` needs to
+   place it on the timeline — the drag never starts and the row's click handler
+   (apply as manual preview) fires instead. */
+.scene-row { user-select: none; -webkit-user-select: none; -moz-user-select: none; }
 .fixture-row.selected, .scene-row.active {
   border-color: var(--accent);
   color: var(--text-0);

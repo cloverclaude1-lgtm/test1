@@ -22,11 +22,21 @@ export function renderSceneList(container, scenes, activeOverrideId, onApply, on
     row.draggable = true;
     const swatch = swatchFromScene(scene);
     row.innerHTML = `<span>${swatch} ${escapeHtml(scene.name)}</span>`;
-    row.addEventListener('click', () => onApply(scene.id));
+    // A dragstart that gets swallowed (e.g. the browser started a text selection
+    // instead, before the CSS user-select:none fix below existed) used to fall
+    // through to an ordinary click on this same element — silently pinning the
+    // manual scene override. Guard it anyway: a real dragstart marks the row so
+    // the click that can follow a drag gesture on some browsers is ignored.
+    row.addEventListener('click', () => {
+      if (row.dataset.dragging === '1') return;
+      onApply(scene.id);
+    });
     row.addEventListener('dragstart', (e) => {
+      row.dataset.dragging = '1';
       e.dataTransfer.setData('text/plain', scene.id);
       e.dataTransfer.effectAllowed = 'copy';
     });
+    row.addEventListener('dragend', () => { delete row.dataset.dragging; });
     container.appendChild(row);
   }
 }
