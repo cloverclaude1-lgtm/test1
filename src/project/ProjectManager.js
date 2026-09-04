@@ -150,9 +150,12 @@ export function hydrateProject(project) {
  * far more gracefully: it either downloads immediately or silently no-ops,
  * never hangs waiting on a dialog the user can't see.
  *
- * Safari has a long history of ignoring/partially-supporting the `download`
- * attribute, so on Safari the blob is also opened in a new tab as a manual
- * "Save As" fallback. Returns 'download' so the caller can show feedback.
+ * The anchor targets a new tab (`target="_blank"`) so that on any browser/embed
+ * that ignores `download` (Safari has a long history of this, and sandboxed
+ * previews may block it outright) the fallback is a new tab showing the file
+ * instead of the current tab navigating away from the running app — which
+ * otherwise reads as "the screen just goes black" right after saving.
+ * Returns 'download' so the caller can show feedback.
  */
 export function downloadProjectFile(project) {
   const filename = `${sanitizeFileName(project.name || 'lightstage-project')}.lightstage.json`;
@@ -163,14 +166,16 @@ export function downloadProjectFile(project) {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  // If the environment doesn't honor `download` (e.g. a sandboxed iframe/forwarded-port
+  // preview without an explicit downloads allowance), clicking a plain same-tab anchor
+  // falls back to navigating the current tab to the blob URL — replacing the whole running
+  // app with raw JSON, which reads as "the screen just goes black" after saving. Forcing a
+  // new tab makes that fallback safe: the live app in the current tab is never replaced.
+  a.target = '_blank';
+  a.rel = 'noopener';
   document.body.appendChild(a);
   a.click();
   a.remove();
-  // Safari has a long history of ignoring/partially-supporting the `download`
-  // attribute; give Safari users a manual "Save As" path via a new tab too.
-  // (Other browsers already handled the download above — no need to also pop a tab.)
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-  if (isSafari) window.open(url, '_blank');
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   return 'download';
 }

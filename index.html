@@ -46,6 +46,7 @@
         </div>
 
         <button id="btn-generate" class="btn btn-generate" disabled>GENERATE SHOW</button>
+        <button id="btn-open-project" class="btn btn-link">Open an existing project →</button>
         <button id="btn-skip-onboarding" class="btn btn-link">Open editor without generating →</button>
       </div>
     </section>
@@ -85,6 +86,7 @@
               <option value="mid">Mid</option>
               <option value="treble">Treble</option>
             </select>
+            <button id="btn-apply-reactivity-all" class="btn btn-ghost tiny">Apply to all fixtures</button>
           </div>
           <div class="fixture-palette" id="fixture-palette">
             <button class="palette-btn" data-type="par">➕ PAR</button>
@@ -142,6 +144,7 @@
           <button id="btn-stop" class="transport-btn">■</button>
           <button id="btn-add-keyframe" class="btn btn-ghost tiny" style="width:auto;" disabled title="Select a fixture to add a keyframe">+ Keyframe</button>
           <span id="time-display" class="time-display">00:00 / 00:00</span>
+          <label class="zoom-control" title="Zoom the timeline">🔍 <input type="range" id="timeline-zoom" class="zoom-slider" min="1" max="10" step="0.5" value="1" /></label>
           <div id="timeline-legend" class="timeline-legend"></div>
           <div id="cue-inspector" class="cue-inspector hidden">
             <span id="cue-inspector-name" class="cue-inspector-name"></span>
@@ -157,7 +160,9 @@
             <button id="keyframe-deselect-btn" class="icon-btn" title="Deselect">✕</button>
           </div>
         </div>
-        <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
+        <div class="timeline-scroll">
+          <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
+        </div>
       </footer>
     </div>
 

@@ -57,10 +57,44 @@ export class App {
     this._defaultReactivityBand = 'none';
     this._clipboard = null;
 
+    this._bindOpenProjectFlow();
     this._bindOnboarding();
     this._bindEditorShell();
     this._bindKeyboardShortcuts();
     this._fpsSamples = [];
+  }
+
+  /**
+   * The "Open Project" file input + its handling, shared by the onboarding
+   * screen's "Open an existing project" link and the editor menubar's "Open
+   * Project" button — both just call `this._openProjectInput.click()`.
+   */
+  _bindOpenProjectFlow() {
+    const openInput = document.createElement('input');
+    openInput.type = 'file';
+    openInput.accept = '.json,application/json';
+    openInput.className = 'visually-hidden-input';
+    document.body.appendChild(openInput);
+    openInput.addEventListener('change', safeHandler('Open Project', async () => {
+      if (!openInput.files[0]) return;
+      const project = await readProjectFile(openInput.files[0]);
+      this.project = project;
+      this.lightingEngine = new LightingEngine();
+      this.selectedFixtureId = null;
+      this._timeline?.clearSelection();
+      if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
+      this._refreshCueInspector(null);
+      this._refreshKeyframeInspector(null);
+      if (project.audio) {
+        await this.audioEngine.restoreFromProject(project.audio.dataUrl, project.audio.fileName, project.audio.analysis);
+      } else {
+        this.audioEngine.stop();
+      }
+      this._enterEditor();
+      showToast(`Opened "${project.name || 'project'}"`, { type: 'success' });
+      openInput.value = '';
+    }));
+    this._openProjectInput = openInput;
   }
 
   // =========================================================================
@@ -103,6 +137,7 @@ export class App {
 
     generateBtn.addEventListener('click', () => this._generateFromOnboarding());
     skipBtn.addEventListener('click', () => this._enterEditor());
+    document.getElementById('btn-open-project').addEventListener('click', () => this._openProjectInput.click());
   }
 
   async _handleSongFile(file) {
@@ -159,6 +194,7 @@ export class App {
       renderTimelineLegend(document.getElementById('timeline-legend'));
       this._bindCueInspector();
       this._bindKeyframeInspector();
+      document.getElementById('timeline-zoom').addEventListener('input', (e) => this._timeline.setZoom(parseFloat(e.target.value)));
       window.addEventListener('resize', () => { this._stageRenderer.resize(); this._timeline.resize(); });
       this._startRenderLoop();
     }
@@ -205,34 +241,10 @@ export class App {
 
     document.getElementById('menu-save').addEventListener('click', safeHandler('Save Project', () => {
       downloadProjectFile(this.project);
-      showToast('Project file ready — check your downloads (or the new tab that opened on Safari)', { type: 'success', durationMs: 4000 });
+      showToast('Project file ready — check your downloads (or the new tab that may have opened)', { type: 'success', durationMs: 4000 });
     }));
 
-    const openInput = document.createElement('input');
-    openInput.type = 'file';
-    openInput.accept = '.json,application/json';
-    openInput.className = 'visually-hidden-input';
-    document.body.appendChild(openInput);
-    document.getElementById('menu-load').addEventListener('click', safeHandler('Open Project', () => openInput.click()));
-    openInput.addEventListener('change', safeHandler('Open Project', async () => {
-      if (!openInput.files[0]) return;
-      const project = await readProjectFile(openInput.files[0]);
-      this.project = project;
-      this.lightingEngine = new LightingEngine();
-      this.selectedFixtureId = null;
-      this._timeline?.clearSelection();
-      if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
-      this._refreshCueInspector(null);
-      this._refreshKeyframeInspector(null);
-      if (project.audio) {
-        await this.audioEngine.restoreFromProject(project.audio.dataUrl, project.audio.fileName, project.audio.analysis);
-      } else {
-        this.audioEngine.stop();
-      }
-      this._enterEditor();
-      showToast(`Opened "${project.name || 'project'}"`, { type: 'success' });
-      openInput.value = '';
-    }));
+    document.getElementById('menu-load').addEventListener('click', safeHandler('Open Project', () => this._openProjectInput.click()));
 
     const audioInput = document.createElement('input');
     audioInput.type = 'file';
@@ -295,6 +307,13 @@ export class App {
 
     document.getElementById('default-reactivity-select').addEventListener('change', safeHandler('Frequency reactivity default', (e) => {
       this._defaultReactivityBand = e.target.value;
+    }));
+
+    document.getElementById('btn-apply-reactivity-all').addEventListener('click', safeHandler('Apply reactivity to all fixtures', () => {
+      for (const f of this.project.fixtures) f.audioReactivity = { ...f.audioReactivity, band: this._defaultReactivityBand };
+      this._refreshFixtures();
+      this._refreshProperties();
+      showToast(`Set "${this._defaultReactivityBand}" reactivity on ${this.project.fixtures.length} fixture(s)`, { type: 'success' });
     }));
 
     document.querySelectorAll('.palette-btn').forEach((btn) => {

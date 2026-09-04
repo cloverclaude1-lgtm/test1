@@ -22,6 +22,7 @@ const EDGE_TOLERANCE_PX = 8;
 const KEYFRAME_HIT_RADIUS_PX = 9;
 const MOVE_THRESHOLD_PX = 3;
 const SNAP_PX = 8;
+const MAX_ZOOM = 10;
 export const MIN_CUE_DURATION = 0.3;
 
 /** Renders a static legend (once) explaining the timeline's lanes and colors. */
@@ -84,6 +85,7 @@ export class TimelineView {
     this._drag = null;
     this._hoverCueId = null;
     this._hoverEdge = null; // 'left' | 'right' | null — which edge (if any) is glowing
+    this._zoom = 1; // 1..MAX_ZOOM — canvas width is this many multiples of its scroll wrapper's width
 
     canvas.addEventListener('pointerdown', this._onPointerDown.bind(this));
     canvas.addEventListener('pointermove', this._onPointerMove.bind(this));
@@ -103,11 +105,27 @@ export class TimelineView {
   }
 
   resize() {
+    this._applyZoomWidth();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const { clientWidth, clientHeight } = this.canvas;
     this.canvas.width = clientWidth * dpr;
     this.canvas.height = clientHeight * dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /** Sets the canvas's CSS width to `zoom` multiples of its scroll wrapper's (fixed) width. */
+  _applyZoomWidth() {
+    const wrapperWidth = this.canvas.parentElement.clientWidth;
+    if (wrapperWidth > 0) this.canvas.style.width = `${wrapperWidth * this._zoom}px`;
+  }
+
+  /** Zooms the timeline horizontally (1 = fit the visible area, up to MAX_ZOOM). Panning is
+   * native scroll on the `.timeline-scroll` wrapper — the canvas itself just gets wider, so
+   * every existing time↔pixel formula (draw/_hitTest/_pixelToTime/_snapTime) keeps working
+   * unchanged since they all read the canvas's live clientWidth/getBoundingClientRect(). */
+  setZoom(zoom) {
+    this._zoom = Math.max(1, Math.min(MAX_ZOOM, zoom));
+    this.resize();
   }
 
   clearSelection() {
