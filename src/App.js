@@ -9,9 +9,10 @@ import { createFixture, inferRole } from './fixtures/Fixture.js';
 import { showToast, showConfirm } from './ui/Toast.js';
 import { openTutorial } from './ui/Tutorial.js';
 import {
-  createDefaultProject, downloadProjectFile, readProjectFile,
+  createDefaultProject, downloadProjectFile, readProjectFile, deserializeProject,
 } from './project/ProjectManager.js';
 import { exportPlotPDF } from './project/PlotExport.js';
+import { openVersionHistoryModal } from './ui/VersionHistoryModal.js';
 import { renderFixtureList } from './ui/FixturePanel.js';
 import { renderProperties } from './ui/PropertiesPanel.js';
 import { renderSceneList } from './ui/SceneList.js';
@@ -91,23 +92,34 @@ export class App {
     openInput.addEventListener('change', safeHandler('Open Project', async () => {
       if (!openInput.files[0]) return;
       const project = await readProjectFile(openInput.files[0]);
-      this.project = project;
-      this.lightingEngine = new LightingEngine();
-      this.selectedFixtureId = null;
-      this._timeline?.clearSelection();
-      if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
-      this._refreshCueInspector(null);
-      this._refreshKeyframeInspector(null);
-      if (project.audio) {
-        await this.audioEngine.restoreFromProject(project.audio.dataUrl, project.audio.fileName, project.audio.analysis);
-      } else {
-        this.audioEngine.stop();
-      }
-      this._enterEditor();
+      await this._loadProject(project);
       showToast(`Opened "${project.name || 'project'}"`, { type: 'success' });
       openInput.value = '';
     }));
     this._openProjectInput = openInput;
+  }
+
+  /**
+   * Swaps in a fully-formed project object (from an opened file, a restored
+   * version, etc.) as the live project — resets engine/selection state,
+   * restores audio if the project has any, and enters the editor. Shared by
+   * `_bindOpenProjectFlow()` and Version History's Restore action so both
+   * "load a project from somewhere else" paths stay in sync.
+   */
+  async _loadProject(project) {
+    this.project = project;
+    this.lightingEngine = new LightingEngine();
+    this.selectedFixtureId = null;
+    this._timeline?.clearSelection();
+    if (this._timeline) { this._timeline.selectedFixtureId = null; this._timeline.clearKeyframeSelection(); }
+    this._refreshCueInspector(null);
+    this._refreshKeyframeInspector(null);
+    if (project.audio) {
+      await this.audioEngine.restoreFromProject(project.audio.dataUrl, project.audio.fileName, project.audio.analysis);
+    } else {
+      this.audioEngine.stop();
+    }
+    this._enterEditor();
   }
 
   // =========================================================================
@@ -269,6 +281,19 @@ export class App {
       if (this.project.fixtures.length === 0) { showToast('Add some fixtures to the rig first.', { type: 'error' }); return; }
       exportPlotPDF(this.project);
       showToast('Lighting plot PDF ready — check your downloads (or the new tab that may have opened)', { type: 'success', durationMs: 4000 });
+    }));
+
+    document.getElementById('menu-version-history').addEventListener('click', safeHandler('Version History', () => {
+      openVersionHistoryModal(this.project, {
+        onRestore: async (record) => {
+          const ok = await showConfirm(`Restore "${record.label}"? Unsaved changes to the current project will be lost.`, { confirmLabel: 'Restore' });
+          if (!ok) return false;
+          const project = deserializeProject(record.projectJson);
+          await this._loadProject(project);
+          showToast(`Restored "${record.label}"`, { type: 'success' });
+          return true;
+        },
+      });
     }));
 
     document.getElementById('menu-load').addEventListener('click', safeHandler('Open Project', () => this._openProjectInput.click()));

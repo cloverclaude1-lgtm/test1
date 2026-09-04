@@ -398,6 +398,15 @@ button {
 
 .tutorial-modal { width: min(480px, 90vw); }
 .tutorial-dots { display: flex; gap: 6px; justify-content: center; margin-top: 8px; }
+
+.version-modal { width: min(560px, 92vw); max-height: 82vh; overflow-y: auto; }
+.version-list { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; max-height: 260px; overflow-y: auto; }
+.version-row { display: flex; align-items: center; gap: 8px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.version-row-info { flex: 1; min-width: 0; }
+.version-row-label { font-size: 13px; font-weight: 600; }
+.version-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.version-compare-bar { display: flex; justify-content: flex-end; }
+.version-diff { margin-top: 10px; padding: 10px; background: var(--bg-2); border-radius: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
 .tutorial-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
 .tutorial-dot.active { background: var(--accent); }
 
