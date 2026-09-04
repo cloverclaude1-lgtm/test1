@@ -216,7 +216,6 @@ button {
   flex: 1;
   display: flex;
   min-height: 0;
-  position: relative;
 }
 
 .panel {
@@ -225,16 +224,9 @@ button {
   background: var(--bg-1);
   padding: 14px;
   overflow-y: auto;
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  z-index: 40;
-  transition: transform 0.2s ease;
-  box-shadow: 0 0 24px rgba(0,0,0,0.45);
 }
-.panel-left { left: 0; border-right: 1px solid var(--border); transform: translateX(-100%); }
-.panel-right { right: 0; border-left: 1px solid var(--border); transform: translateX(100%); }
-.panel.open { transform: translateX(0); }
+.panel-left { border-right: 1px solid var(--border); }
+.panel-right { border-left: 1px solid var(--border); }
 .panel h3 {
   font-size: 11px;
   text-transform: uppercase;
@@ -461,10 +453,15 @@ button {
 }
 
 /* Bigger touch targets on touch devices — the menubar packs several small
-   buttons edge-to-edge, which is easy to mis-tap on a phone/tablet. */
+   buttons edge-to-edge, which is easy to mis-tap on a phone/tablet.
+   The menubar now has more buttons than fit in one row on a phone-width
+   screen; wrapping them made the second row overflow the fixed-height bar
+   and get clipped/overlapped by the browser's own UI. Scrolling horizontally
+   instead keeps every button reachable and the bar's height fixed/predictable. */
 @media (pointer: coarse) {
-  .menubar { height: 56px; min-height: 56px; flex-wrap: wrap; }
+  .menubar { height: 56px; min-height: 56px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .menubar-left, .menubar-right { flex-shrink: 0; gap: 8px; }
+  .menu-item, .btn.small, .style-select { flex-shrink: 0; white-space: nowrap; }
   .menu-item { padding: 10px 14px; font-size: 13.5px; min-height: 40px; }
   .btn.small { padding: 10px 16px; font-size: 13px; min-height: 40px; }
-  .menubar-left, .menubar-right { gap: 8px; }
 }

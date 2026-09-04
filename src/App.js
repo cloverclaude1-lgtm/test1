@@ -250,13 +250,6 @@ export class App {
   // Editor shell (menubar, palette, transport)
   // =========================================================================
   _bindEditorShell() {
-    document.getElementById('panel-left-toggle').addEventListener('click', () => {
-      document.querySelector('.panel-left').classList.toggle('open');
-    });
-    document.getElementById('panel-right-toggle').addEventListener('click', () => {
-      document.querySelector('.panel-right').classList.toggle('open');
-    });
-
     document.getElementById('menu-new').addEventListener('click', safeHandler('New Project', async () => {
       if (await showConfirm('Start a new project? Unsaved changes will be lost.', { confirmLabel: 'Start New' })) {
         this.project = createDefaultProject();
