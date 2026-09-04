@@ -45,8 +45,8 @@ export class StageRenderer {
     this.previewMode = false;
     this._previewLights = null; // created lazily on first enable, reused after that
     this._preFogDensity = null;
-    this.topDown = false;
-    this._preTopDown = null; // stashed camera pos/target while topDown is active, restored on disable
+    this._viewMode = '3d'; // '3d' | 'top' | 'front'
+    this._preLockedView = null; // stashed camera pos/target while in 'top'/'front', restored on returning to '3d'
     this.setLayout('arena');
 
     this.fixtureVisuals = new Map(); // fixtureId -> { group, body, beam, light, kind, selectionRing, ledPixels? }
@@ -178,38 +178,65 @@ export class StageRenderer {
     // normal dim look out from under the user.
     if (this.previewMode) this.setPreviewMode(true);
 
-    // A layout switch while top-down is active would otherwise leave the camera
-    // framed for the OLD venue's size — reapply so the new one is properly framed.
-    if (this.topDown) this.setTopDown(true);
+    // A layout switch while a locked view is active would otherwise leave the
+    // camera framed for the OLD venue's size — reapply so the new one frames correctly.
+    this.setViewMode(this._viewMode);
   }
 
   /**
-   * Toggles a straight-down camera view over the whole rig — a lightweight "2D
-   * plot" read on the existing 3D scene rather than a separate render path.
-   * Reuses the same camera/OrbitControls the normal 3D view uses: on enable it
-   * stashes the current position/target, moves the camera directly above the
-   * stage center looking straight down, and locks orbiting to that angle so the
-   * user can't tilt back into a 3D view by accident; on disable it restores
-   * exactly what was stashed.
+   * Switches between the free 3D view and two locked 2D-style reads on the
+   * same scene — a lightweight "plot" (top) and "elevation" (front) view,
+   * rather than a separate render path. Reuses the same camera/OrbitControls
+   * the normal 3D view uses: entering 'top' or 'front' from '3d' stashes the
+   * current position/target once, and returning to '3d' restores exactly
+   * that — going directly between 'top' and 'front' doesn't re-stash, so the
+   * original free-orbit pose survives however many times the user hops
+   * between the two locked views.
    */
-  setTopDown(enabled) {
-    this.topDown = enabled;
-    if (enabled) {
-      if (!this._preTopDown) {
-        this._preTopDown = { pos: this.camera.position.clone(), target: this.controls.target.clone() };
-      }
-      const config = this._currentConfig || STAGE_LAYOUTS.arena;
+  setViewMode(mode) {
+    if (this._viewMode === '3d' && mode !== '3d' && !this._preLockedView) {
+      this._preLockedView = { pos: this.camera.position.clone(), target: this.controls.target.clone() };
+    }
+    this._viewMode = mode;
+    const config = this._currentConfig || STAGE_LAYOUTS.arena;
+
+    // Damping smooths free orbiting, but it also means a drag that ends right as a
+    // locked mode engages can leave residual momentum that only becomes visible once
+    // the angle constraints loosen again later (e.g. back in '3d') — since a locked
+    // view should read as rigid/precise anyway, damping is off for 'top'/'front' and
+    // restored for '3d'.
+    this.controls.enableDamping = mode === '3d';
+
+    if (mode === 'top') {
       const dist = Math.max(config.width, config.depth) * 0.9;
       this.camera.position.set(0, dist, 0.01); // tiny z offset avoids the lookAt gimbal-lock straight down
       this.controls.target.set(0, 0, 0);
       this.controls.minPolarAngle = 0;
       this.controls.maxPolarAngle = 0;
-    } else if (this._preTopDown) {
-      this.camera.position.copy(this._preTopDown.pos);
-      this.controls.target.copy(this._preTopDown.target);
+      this.controls.minAzimuthAngle = -Infinity;
+      this.controls.maxAzimuthAngle = Infinity;
+    } else if (mode === 'front') {
+      // Stage x runs [-width/2, width/2] (left/right); z runs [-depth/2, depth/2] with
+      // positive z toward the audience (matches Fixture.js's inferRole() and the PDF
+      // plot export) — so the camera sits on the +z side looking back along -z.
+      const dist = Math.max(config.width, config.trussY * 2) * 1.1;
+      const midY = config.trussY / 2;
+      this.camera.position.set(0, midY, dist);
+      this.controls.target.set(0, midY, 0);
+      this.controls.minPolarAngle = Math.PI / 2;
+      this.controls.maxPolarAngle = Math.PI / 2;
+      this.controls.minAzimuthAngle = 0;
+      this.controls.maxAzimuthAngle = 0;
+    } else {
+      if (this._preLockedView) {
+        this.camera.position.copy(this._preLockedView.pos);
+        this.controls.target.copy(this._preLockedView.target);
+        this._preLockedView = null;
+      }
       this.controls.minPolarAngle = 0;
       this.controls.maxPolarAngle = DEFAULT_MAX_POLAR_ANGLE;
-      this._preTopDown = null;
+      this.controls.minAzimuthAngle = -Infinity;
+      this.controls.maxAzimuthAngle = Infinity;
     }
     this.controls.update();
   }

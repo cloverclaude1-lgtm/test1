@@ -192,6 +192,7 @@ button {
   border-bottom: 1px solid var(--border);
 }
 .menubar-left, .menubar-right { display: flex; align-items: center; gap: 4px; }
+.view-mode-group { display: flex; gap: 2px; }
 .brand { font-weight: 700; margin-right: 14px; letter-spacing: 0.3px; }
 .menu-item {
   background: none;

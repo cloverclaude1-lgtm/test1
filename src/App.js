@@ -357,12 +357,12 @@ export class App {
       previewBtn.classList.toggle('active', enabled);
     }));
 
-    const topDownBtn = document.getElementById('topdown-toggle');
-    topDownBtn.addEventListener('click', safeHandler('Top-Down View', () => {
-      const enabled = !topDownBtn.classList.contains('active');
-      this._stageRenderer.setTopDown(enabled);
-      topDownBtn.classList.toggle('active', enabled);
-    }));
+    document.querySelectorAll('.view-mode-btn').forEach((btn) => {
+      btn.addEventListener('click', safeHandler('View Mode', () => {
+        this._stageRenderer.setViewMode(btn.dataset.view);
+        document.querySelectorAll('.view-mode-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      }));
+    });
 
     document.getElementById('default-reactivity-select').addEventListener('change', safeHandler('Frequency reactivity default', (e) => {
       this._defaultReactivityBand = e.target.value;
