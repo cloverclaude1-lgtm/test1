@@ -11,6 +11,7 @@ import { openTutorial } from './ui/Tutorial.js';
 import {
   createDefaultProject, downloadProjectFile, readProjectFile,
 } from './project/ProjectManager.js';
+import { exportPlotPDF } from './project/PlotExport.js';
 import { renderFixtureList } from './ui/FixturePanel.js';
 import { renderProperties } from './ui/PropertiesPanel.js';
 import { renderSceneList } from './ui/SceneList.js';
@@ -262,6 +263,12 @@ export class App {
     document.getElementById('menu-save').addEventListener('click', safeHandler('Save Project', () => {
       downloadProjectFile(this.project);
       showToast('Project file ready — check your downloads (or the new tab that may have opened)', { type: 'success', durationMs: 4000 });
+    }));
+
+    document.getElementById('menu-export-plot').addEventListener('click', safeHandler('Export Plot', () => {
+      if (this.project.fixtures.length === 0) { showToast('Add some fixtures to the rig first.', { type: 'error' }); return; }
+      exportPlotPDF(this.project);
+      showToast('Lighting plot PDF ready — check your downloads (or the new tab that may have opened)', { type: 'success', durationMs: 4000 });
     }));
 
     document.getElementById('menu-load').addEventListener('click', safeHandler('Open Project', () => this._openProjectInput.click()));

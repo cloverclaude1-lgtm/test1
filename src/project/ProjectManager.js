@@ -140,8 +140,8 @@ export function hydrateProject(project) {
 }
 
 /**
- * Saves a project to a local file via a Blob + `<a download>` click — the
- * simplest, most broadly reliable approach across normal browser tabs.
+ * Downloads any Blob to a local file via a temporary `<a download>` click —
+ * the simplest, most broadly reliable approach across normal browser tabs.
  *
  * The File System Access API (`showSaveFilePicker`) was tried here first in
  * an earlier version, but it turned out to be a worse bet for this app: it
@@ -158,28 +158,25 @@ export function hydrateProject(project) {
  * previews may block it outright) the fallback is a new tab showing the file
  * instead of the current tab navigating away from the running app — which
  * otherwise reads as "the screen just goes black" right after saving.
- * Returns 'download' so the caller can show feedback.
  */
-export function downloadProjectFile(project) {
-  const filename = `${sanitizeFileName(project.name || 'lightstage-project')}.lightstage.json`;
-  const json = serializeProject(project);
-
-  const blob = new Blob([json], { type: 'application/json' });
+export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
-  // If the environment doesn't honor `download` (e.g. a sandboxed iframe/forwarded-port
-  // preview without an explicit downloads allowance), clicking a plain same-tab anchor
-  // falls back to navigating the current tab to the blob URL — replacing the whole running
-  // app with raw JSON, which reads as "the screen just goes black" after saving. Forcing a
-  // new tab makes that fallback safe: the live app in the current tab is never replaced.
   a.target = '_blank';
   a.rel = 'noopener';
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/** Saves a project to a local `.lightstage.json` file. Returns 'download' so the caller can show feedback. */
+export function downloadProjectFile(project) {
+  const filename = `${sanitizeFileName(project.name || 'lightstage-project')}.lightstage.json`;
+  const json = serializeProject(project);
+  downloadBlob(new Blob([json], { type: 'application/json' }), filename);
   return 'download';
 }
 
