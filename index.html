@@ -56,6 +56,8 @@
       <header class="menubar">
         <div class="menubar-left">
           <span class="brand">✦ LightStage</span>
+          <button class="menu-item" id="panel-left-toggle" title="Stage &amp; Fixtures">☰ Fixtures</button>
+          <button class="menu-item" id="panel-right-toggle" title="Properties &amp; Scenes">☰ Properties</button>
           <button class="menu-item" id="menu-new" title="Reset to a blank project">New Project</button>
           <button class="menu-item" id="menu-save">Save Project</button>
           <button class="menu-item" id="menu-load">Open Project</button>
@@ -64,6 +66,7 @@
         <div class="menubar-right">
           <select id="style-select" class="style-select"></select>
           <button id="preview-mode-toggle" class="btn btn-ghost small">Preview Mode</button>
+          <button id="topdown-toggle" class="btn btn-ghost small">Top-Down</button>
           <button id="menu-generate" class="btn btn-primary small">Generate Show</button>
           <button id="menu-advanced-toggle" class="btn btn-ghost small">Advanced ▾</button>
           <button id="menu-help" class="btn btn-ghost small" title="How to use LightStage">🎓 Help</button>
@@ -76,6 +79,17 @@
           <div class="field">
             <label>Layout</label>
             <select id="stage-layout-select"></select>
+          </div>
+          <div class="field hidden" id="custom-stage-form">
+            <div class="field-row">
+              <div class="field"><label>Width (m)</label><input type="number" id="custom-stage-width" step="1" min="4" /></div>
+              <div class="field"><label>Depth (m)</label><input type="number" id="custom-stage-depth" step="1" min="4" /></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Truss height (m)</label><input type="number" id="custom-stage-trussy" step="0.5" min="2" /></div>
+              <div class="field"><label>Backdrop height (m)</label><input type="number" id="custom-stage-backdroph" step="0.5" min="2" /></div>
+            </div>
+            <button id="btn-apply-custom-stage" class="btn btn-ghost tiny">Apply Custom Dimensions</button>
           </div>
           <h3>Fixtures</h3>
           <div class="field">
@@ -94,7 +108,28 @@
             <button class="palette-btn" data-type="movinghead">➕ Moving Head</button>
             <button class="palette-btn" data-type="strobe">➕ Strobe</button>
             <button class="palette-btn" data-type="ledstrip">➕ LED Strip</button>
+            <button class="palette-btn" data-type="movingheadwash">➕ MH Wash</button>
+            <button class="palette-btn" data-type="movingheadbeam">➕ MH Beam</button>
+            <button class="palette-btn" data-type="fresnel">➕ Fresnel</button>
+            <button class="palette-btn" data-type="profile">➕ Profile</button>
+            <button class="palette-btn" data-type="blinder">➕ Blinder</button>
+            <button class="palette-btn" data-type="followspot">➕ Followspot</button>
+            <button class="palette-btn" data-type="scanner">➕ Scanner</button>
+            <button class="palette-btn" data-type="laser">➕ Laser</button>
+            <button class="palette-btn" data-type="cyclight">➕ Cyc/Flood</button>
+            <button class="palette-btn" data-type="uplight">➕ Uplight</button>
+            <button class="palette-btn" data-type="pinspot">➕ Pin Spot</button>
+            <button class="palette-btn" data-type="striplight">➕ Strip Light</button>
+            <button class="palette-btn" data-type="hybrid">➕ Hybrid</button>
           </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Event template</label>
+              <select id="event-template-select"></select>
+            </div>
+          </div>
+          <button id="btn-apply-event-template" class="btn btn-ghost tiny">Apply Event Template (rig + style + stage)</button>
 
           <div class="field-row">
             <div class="field">

@@ -132,6 +132,9 @@ export function hydrateProject(project) {
 
   project.timeline = project.timeline || [];
   project.stageLayout = project.stageLayout || 'arena';
+  // A hand-edited/corrupted file could claim 'custom' without the dimensions to back it up —
+  // fall back to a known-good layout rather than handing StageRenderer.setLayout(undefined).
+  if (project.stageLayout === 'custom' && !project.customStageLayout) project.stageLayout = 'arena';
 
   return project;
 }

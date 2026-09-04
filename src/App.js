@@ -23,6 +23,18 @@ import { TimelineView, renderTimelineLegend, MIN_CUE_DURATION } from './ui/Timel
 // (see index.html #analysis-checklist data-order attributes).
 const STAGE_ORDER = { decode: 0, freq: 1, beats: 2, sections: 3, done: 4 };
 const DEFAULT_DROPPED_CUE_DURATION = 8;
+
+// "Event templates" — a one-click starting point that composes an existing rig
+// preset + style preset + stage layout together, rather than picking all three
+// separately. Purely a convenience bundle over the three preset systems below.
+const EVENT_TEMPLATES = {
+  wedding: { label: 'Wedding', rig: 'minimal', style: 'chill', stageLayout: 'theater' },
+  clubNight: { label: 'Club Night', rig: 'circular', style: 'edm', stageLayout: 'club' },
+  festivalHeadliner: { label: 'Festival Headliner', rig: 'bigArena', style: 'edm', stageLayout: 'festival' },
+  corporateGala: { label: 'Corporate Gala', rig: 'frontWall', style: 'cinematic', stageLayout: 'theater' },
+  rockConcert: { label: 'Rock Concert', rig: 'wideSymmetric', style: 'rock', stageLayout: 'arena' },
+};
+const EVENT_TEMPLATE_IDS = Object.keys(EVENT_TEMPLATES);
 let nextCueId = 1;
 function makeCueId() {
   return `cue_${Date.now().toString(36)}_${(nextCueId++).toString(36)}`;
@@ -202,7 +214,8 @@ export class App {
     this._populateStyleSelect();
     this._populateStageLayoutSelect();
     this._populateRigPresetSelect();
-    this._stageRenderer.setLayout(this.project.stageLayout || 'arena');
+    this._populateEventTemplateSelect();
+    this._stageRenderer.setLayout(this.project.stageLayout === 'custom' ? this.project.customStageLayout : (this.project.stageLayout || 'arena'));
     this._stageRenderer.resize();
     this._timeline.resize();
     this._timeline.selectedFixtureId = this.selectedFixtureId;
@@ -224,6 +237,13 @@ export class App {
   // Editor shell (menubar, palette, transport)
   // =========================================================================
   _bindEditorShell() {
+    document.getElementById('panel-left-toggle').addEventListener('click', () => {
+      document.querySelector('.panel-left').classList.toggle('open');
+    });
+    document.getElementById('panel-right-toggle').addEventListener('click', () => {
+      document.querySelector('.panel-right').classList.toggle('open');
+    });
+
     document.getElementById('menu-new').addEventListener('click', safeHandler('New Project', async () => {
       if (await showConfirm('Start a new project? Unsaved changes will be lost.', { confirmLabel: 'Start New' })) {
         this.project = createDefaultProject();
@@ -305,6 +325,13 @@ export class App {
       previewBtn.classList.toggle('active', enabled);
     }));
 
+    const topDownBtn = document.getElementById('topdown-toggle');
+    topDownBtn.addEventListener('click', safeHandler('Top-Down View', () => {
+      const enabled = !topDownBtn.classList.contains('active');
+      this._stageRenderer.setTopDown(enabled);
+      topDownBtn.classList.toggle('active', enabled);
+    }));
+
     document.getElementById('default-reactivity-select').addEventListener('change', safeHandler('Frequency reactivity default', (e) => {
       this._defaultReactivityBand = e.target.value;
     }));
@@ -325,6 +352,37 @@ export class App {
       const added = applyRigPreset(this.project, presetId);
       this._refreshFixtures();
       showToast(`Added ${added} fixture(s) from "${RIG_PRESETS[presetId].label}"`, { type: 'success' });
+    });
+
+    document.getElementById('btn-apply-event-template').addEventListener('click', () => {
+      const templateId = document.getElementById('event-template-select').value;
+      const template = EVENT_TEMPLATES[templateId];
+      if (!template) return;
+      const added = applyRigPreset(this.project, template.rig);
+      this.project.style = template.style;
+      this.project.stageLayout = template.stageLayout;
+      this._stageRenderer.setLayout(template.stageLayout);
+      document.getElementById('stage-layout-select').value = template.stageLayout;
+      document.getElementById('style-select').value = template.style;
+      this._refreshFixtures();
+      showToast(`Applied "${template.label}" — added ${added} fixture(s), set style + stage`, { type: 'success' });
+    });
+
+    document.getElementById('btn-apply-custom-stage').addEventListener('click', () => {
+      const width = parseFloat(document.getElementById('custom-stage-width').value) || 16;
+      const depth = parseFloat(document.getElementById('custom-stage-depth').value) || 11;
+      const trussY = parseFloat(document.getElementById('custom-stage-trussy').value) || 6;
+      const backdropHeight = parseFloat(document.getElementById('custom-stage-backdroph').value) || 8;
+      const config = {
+        width, depth, trussY, backdropHeight,
+        backdropWidth: width + 4,
+        screenWidth: Math.min(10, width * 0.4),
+        screenHeight: Math.min(5, backdropHeight * 0.4),
+      };
+      this.project.stageLayout = 'custom';
+      this.project.customStageLayout = config;
+      this._stageRenderer.setLayout(config);
+      showToast('Custom stage dimensions applied', { type: 'success' });
     });
 
     document.getElementById('btn-new-group').addEventListener('click', () => {
@@ -427,18 +485,43 @@ export class App {
 
   _populateStageLayoutSelect() {
     const select = document.getElementById('stage-layout-select');
-    select.innerHTML = STAGE_LAYOUT_IDS.map((id) => `<option value="${id}">${STAGE_LAYOUTS[id].label}</option>`).join('');
+    select.innerHTML = STAGE_LAYOUT_IDS.map((id) => `<option value="${id}">${STAGE_LAYOUTS[id].label}</option>`).join('')
+      + '<option value="custom">Custom…</option>';
     select.value = this.project.stageLayout || 'arena';
+    this._toggleCustomStageForm(select.value === 'custom');
+    if (select.value === 'custom' && this.project.customStageLayout) this._fillCustomStageForm(this.project.customStageLayout);
     select.onchange = () => {
+      this._toggleCustomStageForm(select.value === 'custom');
+      if (select.value === 'custom') {
+        // Wait for the Apply button rather than rebuilding the stage on every keystroke.
+        if (this.project.customStageLayout) this._fillCustomStageForm(this.project.customStageLayout);
+        return;
+      }
       this.project.stageLayout = select.value;
       this._stageRenderer.setLayout(select.value);
       showToast(`Stage set to ${STAGE_LAYOUTS[select.value].label}`, { type: 'success' });
     };
   }
 
+  _toggleCustomStageForm(show) {
+    document.getElementById('custom-stage-form').classList.toggle('hidden', !show);
+  }
+
+  _fillCustomStageForm(config) {
+    document.getElementById('custom-stage-width').value = config.width;
+    document.getElementById('custom-stage-depth').value = config.depth;
+    document.getElementById('custom-stage-trussy').value = config.trussY;
+    document.getElementById('custom-stage-backdroph').value = config.backdropHeight;
+  }
+
   _populateRigPresetSelect() {
     const select = document.getElementById('rig-preset-select');
     select.innerHTML = RIG_PRESET_IDS.map((id) => `<option value="${id}">${RIG_PRESETS[id].label}</option>`).join('');
+  }
+
+  _populateEventTemplateSelect() {
+    const select = document.getElementById('event-template-select');
+    select.innerHTML = EVENT_TEMPLATE_IDS.map((id) => `<option value="${id}">${EVENT_TEMPLATES[id].label}</option>`).join('');
   }
 
   _applyGeneratedShow(styleId) {

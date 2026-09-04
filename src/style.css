@@ -215,6 +215,7 @@ button {
   flex: 1;
   display: flex;
   min-height: 0;
+  position: relative;
 }
 
 .panel {
@@ -223,9 +224,16 @@ button {
   background: var(--bg-1);
   padding: 14px;
   overflow-y: auto;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 40;
+  transition: transform 0.2s ease;
+  box-shadow: 0 0 24px rgba(0,0,0,0.45);
 }
-.panel-left { border-right: 1px solid var(--border); }
-.panel-right { border-left: 1px solid var(--border); }
+.panel-left { left: 0; border-right: 1px solid var(--border); transform: translateX(-100%); }
+.panel-right { right: 0; border-left: 1px solid var(--border); transform: translateX(100%); }
+.panel.open { transform: translateX(0); }
 .panel h3 {
   font-size: 11px;
   text-transform: uppercase;

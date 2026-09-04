@@ -14,6 +14,7 @@ import { STAGE_LAYOUTS } from './stageLayouts.js';
 // ---------------------------------------------------------------------------
 
 const GRID_SNAP = 0.25;
+const DEFAULT_MAX_POLAR_ANGLE = Math.PI * 0.49;
 
 // radiusTop lands at local Y=1 (the floor end, after the beam is oriented fixture->floor
 // and stretched by `dist`); radiusBottom lands at local Y=0 (the fixture end, position.copy(worldPos)).
@@ -35,7 +36,7 @@ export class StageRenderer {
 
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
-    this.controls.maxPolarAngle = Math.PI * 0.49;
+    this.controls.maxPolarAngle = DEFAULT_MAX_POLAR_ANGLE;
     this.controls.minDistance = 3;
     this.controls.maxDistance = 40;
 
@@ -44,6 +45,8 @@ export class StageRenderer {
     this.previewMode = false;
     this._previewLights = null; // created lazily on first enable, reused after that
     this._preFogDensity = null;
+    this.topDown = false;
+    this._preTopDown = null; // stashed camera pos/target while topDown is active, restored on disable
     this.setLayout('arena');
 
     this.fixtureVisuals = new Map(); // fixtureId -> { group, body, beam, light, kind, selectionRing, ledPixels? }
@@ -87,14 +90,20 @@ export class StageRenderer {
 
   /**
    * Rebuilds the venue environment (floor/truss/backdrop/screen/ambient
-   * lighting/fog/camera framing) from a named layout in `stageLayouts.js`,
-   * disposing whatever the previous layout owned first. Fixtures the user has
-   * placed (`fixtureVisuals`) are never touched — switching venues re-stages
-   * the same rig, it doesn't reset it.
+   * lighting/fog/camera framing) from a named layout in `stageLayouts.js`, OR
+   * from a plain config object with the same shape (a user-entered "Custom"
+   * layout — stageLayouts.js's own comment already frames each layout as "a
+   * plain config, not bespoke per-layout code," so this just accepts one
+   * built ad hoc instead of only ones registered in STAGE_LAYOUTS). Disposes
+   * whatever the previous layout owned first. Fixtures the user has placed
+   * (`fixtureVisuals`) are never touched — switching venues re-stages the
+   * same rig, it doesn't reset it.
    */
-  setLayout(layoutId) {
-    const config = STAGE_LAYOUTS[layoutId] || STAGE_LAYOUTS.arena;
-    this.currentLayoutId = STAGE_LAYOUTS[layoutId] ? layoutId : 'arena';
+  setLayout(layoutIdOrConfig) {
+    const isCustom = layoutIdOrConfig && typeof layoutIdOrConfig === 'object';
+    const config = isCustom ? { ...STAGE_LAYOUTS.arena, ...layoutIdOrConfig } : (STAGE_LAYOUTS[layoutIdOrConfig] || STAGE_LAYOUTS.arena);
+    this.currentLayoutId = isCustom ? 'custom' : (STAGE_LAYOUTS[layoutIdOrConfig] ? layoutIdOrConfig : 'arena');
+    this._currentConfig = config; // kept for anything (e.g. setTopDown) that needs the resolved config, not just the id
 
     for (const obj of this._layoutObjects) {
       this.scene.remove(obj);
@@ -168,6 +177,41 @@ export class StageRenderer {
     // active, re-apply it now so switching venues doesn't silently drop back to the
     // normal dim look out from under the user.
     if (this.previewMode) this.setPreviewMode(true);
+
+    // A layout switch while top-down is active would otherwise leave the camera
+    // framed for the OLD venue's size — reapply so the new one is properly framed.
+    if (this.topDown) this.setTopDown(true);
+  }
+
+  /**
+   * Toggles a straight-down camera view over the whole rig — a lightweight "2D
+   * plot" read on the existing 3D scene rather than a separate render path.
+   * Reuses the same camera/OrbitControls the normal 3D view uses: on enable it
+   * stashes the current position/target, moves the camera directly above the
+   * stage center looking straight down, and locks orbiting to that angle so the
+   * user can't tilt back into a 3D view by accident; on disable it restores
+   * exactly what was stashed.
+   */
+  setTopDown(enabled) {
+    this.topDown = enabled;
+    if (enabled) {
+      if (!this._preTopDown) {
+        this._preTopDown = { pos: this.camera.position.clone(), target: this.controls.target.clone() };
+      }
+      const config = this._currentConfig || STAGE_LAYOUTS.arena;
+      const dist = Math.max(config.width, config.depth) * 0.9;
+      this.camera.position.set(0, dist, 0.01); // tiny z offset avoids the lookAt gimbal-lock straight down
+      this.controls.target.set(0, 0, 0);
+      this.controls.minPolarAngle = 0;
+      this.controls.maxPolarAngle = 0;
+    } else if (this._preTopDown) {
+      this.camera.position.copy(this._preTopDown.pos);
+      this.controls.target.copy(this._preTopDown.target);
+      this.controls.minPolarAngle = 0;
+      this.controls.maxPolarAngle = DEFAULT_MAX_POLAR_ANGLE;
+      this._preTopDown = null;
+    }
+    this.controls.update();
   }
 
   /**
@@ -482,4 +526,17 @@ const FIXTURE_CAPS = {
   movinghead: { pan: true, tilt: true },
   strobe: { pan: false, tilt: false },
   ledstrip: { pan: false, tilt: false },
+  movingheadwash: { pan: true, tilt: true },
+  movingheadbeam: { pan: true, tilt: true },
+  fresnel: { pan: false, tilt: false },
+  profile: { pan: false, tilt: false },
+  blinder: { pan: false, tilt: false },
+  followspot: { pan: true, tilt: true },
+  scanner: { pan: true, tilt: true },
+  laser: { pan: true, tilt: true },
+  cyclight: { pan: false, tilt: false },
+  uplight: { pan: false, tilt: false },
+  pinspot: { pan: false, tilt: false },
+  striplight: { pan: false, tilt: false },
+  hybrid: { pan: true, tilt: true },
 };

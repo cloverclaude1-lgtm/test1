@@ -34,6 +34,71 @@ export const FIXTURE_TYPES = {
     capabilities: { color: true, pan: false, tilt: false, zoom: false, strobe: false, pixels: true },
     defaultParams: { pixelCount: 12, lengthMeters: 2 },
   },
+  movingheadwash: {
+    label: 'Moving Head Wash',
+    capabilities: { color: true, pan: true, tilt: true, zoom: true, strobe: false },
+    defaultParams: { beamAngle: 25, panRangeDeg: 540, tiltRangeDeg: 270 },
+  },
+  movingheadbeam: {
+    label: 'Moving Head Beam',
+    capabilities: { color: true, pan: true, tilt: true, zoom: false, strobe: true },
+    defaultParams: { beamAngle: 3, panRangeDeg: 540, tiltRangeDeg: 270 },
+  },
+  fresnel: {
+    label: 'Fresnel',
+    capabilities: { color: true, pan: false, tilt: false, zoom: true, strobe: false },
+    defaultParams: { beamAngle: 45 },
+  },
+  profile: {
+    label: 'Profile (Ellipsoidal)',
+    capabilities: { color: true, pan: false, tilt: false, zoom: true, strobe: false },
+    defaultParams: { beamAngle: 19 },
+  },
+  blinder: {
+    label: 'Blinder',
+    capabilities: { color: true, pan: false, tilt: false, zoom: false, strobe: true },
+    defaultParams: { beamAngle: 50 },
+  },
+  followspot: {
+    label: 'Followspot',
+    capabilities: { color: true, pan: true, tilt: true, zoom: true, strobe: false },
+    defaultParams: { beamAngle: 8, panRangeDeg: 180, tiltRangeDeg: 90 },
+  },
+  scanner: {
+    label: 'Scanner',
+    capabilities: { color: true, pan: true, tilt: true, zoom: false, strobe: true },
+    defaultParams: { beamAngle: 6, panRangeDeg: 180, tiltRangeDeg: 100 },
+  },
+  laser: {
+    label: 'Laser',
+    capabilities: { color: true, pan: true, tilt: true, zoom: false, strobe: false },
+    defaultParams: { beamAngle: 0.5 },
+  },
+  cyclight: {
+    label: 'Cyc / Floodlight',
+    capabilities: { color: true, pan: false, tilt: false, zoom: false, strobe: false },
+    defaultParams: { beamAngle: 90 },
+  },
+  uplight: {
+    label: 'Uplight',
+    capabilities: { color: true, pan: false, tilt: false, zoom: false, strobe: false },
+    defaultParams: { beamAngle: 35 },
+  },
+  pinspot: {
+    label: 'Pin Spot',
+    capabilities: { color: true, pan: false, tilt: false, zoom: false, strobe: false },
+    defaultParams: { beamAngle: 8 },
+  },
+  striplight: {
+    label: 'Strip Light',
+    capabilities: { color: true, pan: false, tilt: false, zoom: false, strobe: false },
+    defaultParams: { beamAngle: 60 },
+  },
+  hybrid: {
+    label: 'Hybrid (Spot/Wash/Beam)',
+    capabilities: { color: true, pan: true, tilt: true, zoom: true, strobe: true },
+    defaultParams: { beamAngle: 12, panRangeDeg: 540, tiltRangeDeg: 270 },
+  },
 };
 
 let nextId = 1;
