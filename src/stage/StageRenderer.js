@@ -223,6 +223,47 @@ export class StageRenderer {
     bar(0.18, trussY, 0.18, -(config.width / 2 - 1), trussY / 2, 2.5);
     bar(0.18, trussY, 0.18, (config.width / 2 - 1), trussY / 2, 2.5);
 
+    // ---- Set-dressing: speaker stacks / DJ booth / drum riser / crowd barrier /
+    // catwalk — reusable "real concert stage" pieces, toggled per venue via
+    // config.dressing. Without these every layout was just the same resized/
+    // recolored floor+backdrop+truss box; a venue should look like an actual
+    // stage, not a colored container.
+    const dressing = config.dressing || {};
+    const dressingMat = new THREE.MeshStandardMaterial({ color: 0x101116, roughness: 0.85, metalness: 0.15 });
+    const riserMat = new THREE.MeshStandardMaterial({ color: 0x2a2c33, roughness: 0.6, metalness: 0.25 });
+    const dressBox = (mat, w, h, d, x, y, z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      m.position.set(x, y, z);
+      return own(m);
+    };
+
+    if (dressing.speakerStacks) {
+      // A tapering 3-cabinet PA stack flanking each side of the stage.
+      const stackX = config.width / 2 - 2;
+      const stackZ = 2.1;
+      for (const side of [-1, 1]) {
+        dressBox(dressingMat, 1.1, 1, 1, side * stackX, 0.5, stackZ);
+        dressBox(dressingMat, 1, 0.9, 0.9, side * stackX, 1.45, stackZ);
+        dressBox(dressingMat, 0.85, 0.8, 0.8, side * stackX, 2.3, stackZ);
+      }
+    }
+    if (dressing.djBooth) {
+      dressBox(riserMat, 2.6, 0.5, 1.4, 0, 0.25, -config.depth / 2 + 1.4);
+    }
+    if (dressing.drumRiser) {
+      dressBox(riserMat, 2, 0.35, 1.6, 0, 0.175, -config.depth / 2 + 1.7);
+    }
+    if (dressing.barrier) {
+      // A low crowd-control rail along the audience-facing edge (positive z,
+      // matching Fixture.js's inferRole()/the PDF plot export convention).
+      dressBox(dressingMat, Math.max(4, config.width - 6), 0.9, 0.1, 0, 0.45, config.depth / 2 - 0.4);
+    }
+    if (dressing.catwalk) {
+      // A narrow extension running from the stage's front edge out into the crowd.
+      const catwalkLen = 4;
+      dressBox(riserMat, 2.4, 0.08, catwalkLen, 0, 0.04, config.depth / 2 + catwalkLen / 2);
+    }
+
     this.camera.position.set(config.camera.pos.x, config.camera.pos.y, config.camera.pos.z);
     this.controls.target.set(config.camera.target.x, config.camera.target.y, config.camera.target.z);
     this.controls.update();
