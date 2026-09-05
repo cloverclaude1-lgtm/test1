@@ -27,11 +27,52 @@ const FLOOR_MOUNT_Y = 0.6;
 const unitBeamGeometry = new THREE.CylinderGeometry(1, 0.04, 1, 20, 1, true);
 unitBeamGeometry.translate(0, 0.5, 0); // spans local Y 0..1 so scale.y == length
 
+// Hair-thin, NON-tapering shaft for the laser's beam fan — a laser is a bundle
+// of parallel rays, not a cone that narrows toward the source.
+const unitLaserGeometry = new THREE.CylinderGeometry(0.025, 0.025, 1, 6, 1, true);
+unitLaserGeometry.translate(0, 0.5, 0);
+
+// Flat "wash" curtain for strip-family fixtures (ledstrip/striplight): a plane
+// spanning the fixture's length by the beam's travel distance, instead of a
+// point-source cone — strips throw a flat sheet of light, not a downward cone.
+// Spans local Y 0..-1 (pivot at the fixture end) so scale.y == length with no
+// rotation needed for the common straight-down case.
+const unitWashGeometry = new THREE.PlaneGeometry(1, 1);
+unitWashGeometry.translate(0, -0.5, 0);
+
+// Small decorative parts reused several times per fixture (bulb grids, yoke
+// brackets) — shared module-level geometries/material, never disposed per-fixture.
+const bulbGeometry = new THREE.SphereGeometry(0.035, 8, 8);
+const dotGeometry = new THREE.SphereGeometry(0.015, 6, 6);
+const yokeArmGeometry = new THREE.BoxGeometry(0.03, 0.16, 0.03);
+const pedestalLegGeometry = new THREE.BoxGeometry(0.04, 0.3, 0.04);
+const staticMetalMat = new THREE.MeshStandardMaterial({ color: 0x3a3d48, roughness: 0.4, metalness: 0.7 });
+// Anything in this set is a shared module-level geometry/material reused across
+// many fixtures — _disposeFixtureVisual must never dispose these (would break
+// every OTHER fixture still using them), only per-fixture-unique ones.
+const SHARED_NO_DISPOSE = new Set([
+  unitBeamGeometry, unitLaserGeometry, unitWashGeometry,
+  bulbGeometry, dotGeometry, yokeArmGeometry, pedestalLegGeometry, staticMetalMat,
+]);
+
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
-// Fixture types whose real housings are wider/flatter than a PAR can — gets a
-// distinct low-poly "housing" body shape instead of the default small cylinder.
-const WIDE_HOUSING_TYPES = new Set(['fresnel', 'profile', 'cyclight', 'blinder', 'striplight']);
+// What KIND of beam each fixture type throws — controls shape/behavior, not
+// just width, so types read as genuinely different kinds of light:
+//  - wash: soft, wide, translucent cone
+//  - spot: same cone shape, a touch more defined/opaque than wash
+//  - beam: thin, hard-edged, bright/saturated shaft
+//  - laserFan: several thin parallel (non-tapering) shafts fanned out
+//  - strip: flat wash-curtain plane along the fixture's length
+//  - flash: no aimed beam at all — the body's own bulbs pulse instead
+const BEAM_FAMILY = {
+  par: 'spot', spotlight: 'spot', movinghead: 'spot', profile: 'spot', hybrid: 'spot',
+  strobe: 'flash', blinder: 'flash',
+  ledstrip: 'strip', striplight: 'strip',
+  movingheadwash: 'wash', fresnel: 'wash', cyclight: 'wash', uplight: 'wash',
+  movingheadbeam: 'beam', followspot: 'beam', scanner: 'beam', pinspot: 'beam',
+  laser: 'laserFan',
+};
 
 export class StageRenderer {
   constructor(canvas) {
@@ -67,6 +108,9 @@ export class StageRenderer {
     this._tmpTarget = new THREE.Vector3();
     this._tmpDir = new THREE.Vector3();
     this._up = new THREE.Vector3(0, 1, 0);
+    this._xAxis = new THREE.Vector3(1, 0, 0);
+    this._tmpFanDir = new THREE.Vector3();
+    this._tmpFanQuat = new THREE.Quaternion();
 
     this._raycaster = new THREE.Raycaster();
     this._pointer = new THREE.Vector2();
@@ -355,41 +399,135 @@ export class StageRenderer {
    * leak that degrades a long editing session toward "frozen."
    */
   _disposeFixtureVisual(vis) {
-    this.scene.remove(vis.group, vis.beam, vis.selectionRing);
+    this.scene.remove(vis.group, vis.selectionRing);
     if (vis.light) this.scene.remove(vis.light);
     vis.group.traverse((o) => {
       if (o.isMesh) {
-        o.geometry?.dispose();
-        o.material?.dispose();
+        if (o.geometry && !SHARED_NO_DISPOSE.has(o.geometry)) o.geometry.dispose();
+        if (o.material && !SHARED_NO_DISPOSE.has(o.material)) o.material.dispose();
       }
     });
-    vis.beam.material?.dispose(); // beam geometry is the shared `unitBeamGeometry` — never dispose that
+    // Beam geometries (unitBeamGeometry/unitLaserGeometry/unitWashGeometry) are
+    // shared module-level constants — never dispose those, only the materials.
+    if (vis.beam) {
+      this.scene.remove(vis.beam);
+      vis.beam.material?.dispose();
+    }
+    if (vis.laserBeams) {
+      for (const mesh of vis.laserBeams) {
+        this.scene.remove(mesh);
+        mesh.material?.dispose();
+      }
+    }
     vis.selectionRing.geometry?.dispose();
     vis.selectionRing.material?.dispose();
+  }
+
+  /**
+   * Builds one fixture type's distinct low-poly body — every type gets its
+   * own silhouette (not shared with any other type) so the rig reads as 18
+   * different kinds of fixtures, not 3 shapes with different beam widths.
+   * All "glowing" parts share `bodyMat` (tinted per-frame in render()) so
+   * bulb grids/lens rings/domes light up with the fixture's color automatically;
+   * purely structural bits (yokes, pedestal legs) use the shared, never-tinted
+   * `staticMetalMat`. Returns the primary mesh (used for material access
+   * elsewhere — its `.material` IS `bodyMat`, so tinting it tints every glowing
+   * part of this fixture since they're the same material instance).
+   */
+  _buildFixtureBody(group, fixture, bodyMat) {
+    const glow = (geometry, pos, rotX) => {
+      const m = new THREE.Mesh(geometry, bodyMat);
+      if (pos) m.position.set(pos[0], pos[1], pos[2]);
+      if (rotX != null) m.rotation.x = rotX;
+      group.add(m);
+      return m;
+    };
+    const metal = (geometry, pos) => {
+      const m = new THREE.Mesh(geometry, staticMetalMat);
+      if (pos) m.position.set(pos[0], pos[1], pos[2]);
+      group.add(m);
+      return m;
+    };
+    const yoke = () => { metal(yokeArmGeometry, [-0.13, 0.02, 0]); metal(yokeArmGeometry, [0.13, 0.02, 0]); };
+
+    switch (fixture.type) {
+      case 'strobe': {
+        const b = glow(new THREE.BoxGeometry(0.34, 0.1, 0.22));
+        for (const x of [-0.09, 0.09]) for (const z of [-0.06, 0.06]) glow(bulbGeometry, [x, -0.055, z]);
+        return b;
+      }
+      case 'ledstrip':
+        return glow(new THREE.BoxGeometry(fixture.params?.lengthMeters || 2, 0.08, 0.08));
+      case 'spotlight':
+        yoke();
+        return glow(new THREE.CylinderGeometry(0.09, 0.09, 0.32, 10));
+      case 'movinghead': {
+        yoke();
+        const head = glow(new THREE.CylinderGeometry(0.11, 0.13, 0.22, 10));
+        glow(new THREE.SphereGeometry(0.11, 10, 8), [0, 0.11, 0]);
+        return head;
+      }
+      case 'movingheadwash':
+        yoke();
+        return glow(new THREE.CylinderGeometry(0.16, 0.16, 0.14, 12));
+      case 'movingheadbeam':
+        yoke();
+        return glow(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 10));
+      case 'fresnel': {
+        metal(yokeArmGeometry, [0, 0.1, -0.09]);
+        const b = glow(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 12));
+        glow(new THREE.TorusGeometry(0.13, 0.018, 8, 16), [0, -0.05, 0], Math.PI / 2);
+        return b;
+      }
+      case 'profile':
+        return glow(new THREE.CylinderGeometry(0.08, 0.12, 0.5, 10));
+      case 'blinder': {
+        const b = glow(new THREE.BoxGeometry(0.5, 0.1, 0.3));
+        for (const x of [-0.18, -0.06, 0.06, 0.18]) for (const z of [-0.08, 0.08]) glow(bulbGeometry, [x, -0.055, z]);
+        return b;
+      }
+      case 'followspot':
+        metal(pedestalLegGeometry, [0, -0.32, 0]);
+        return glow(new THREE.CylinderGeometry(0.15, 0.15, 0.4, 10));
+      case 'scanner': {
+        const b = glow(new THREE.BoxGeometry(0.22, 0.2, 0.22));
+        const mirror = glow(new THREE.CylinderGeometry(0.09, 0.09, 0.015, 12), [0, -0.14, 0.05]);
+        mirror.rotation.z = Math.PI / 4;
+        return b;
+      }
+      case 'laser': {
+        const b = glow(new THREE.CylinderGeometry(0.13, 0.13, 0.08, 6));
+        for (let i = -1; i <= 1; i++) glow(dotGeometry, [i * 0.05, -0.045, 0]);
+        return b;
+      }
+      case 'cyclight':
+        return glow(new THREE.BoxGeometry(0.55, 0.12, 0.16));
+      case 'uplight':
+        return glow(new THREE.CylinderGeometry(0.22, 0.24, 0.1, 14));
+      case 'pinspot':
+        return glow(new THREE.CylinderGeometry(0.06, 0.07, 0.14, 8));
+      case 'striplight':
+        return glow(new THREE.BoxGeometry(1.2, 0.1, 0.14));
+      case 'hybrid': {
+        yoke();
+        const b = glow(new THREE.CylinderGeometry(0.13, 0.13, 0.2, 10));
+        glow(new THREE.TorusGeometry(0.15, 0.015, 8, 16), [0, 0, 0], Math.PI / 2);
+        return b;
+      }
+      case 'par':
+      default:
+        return glow(new THREE.CylinderGeometry(0.14, 0.16, 0.28, 8));
+    }
   }
 
   _createFixtureVisual(fixture) {
     const group = new THREE.Group();
     group.userData.fixtureId = fixture.id;
-    const bodyColor = 0x1c1e28;
-    const caps = FIXTURE_CAPS[fixture.type] || FIXTURE_CAPS.par;
-    let body;
-    if (fixture.type === 'ledstrip') {
-      body = new THREE.Mesh(new THREE.BoxGeometry(fixture.params?.lengthMeters || 2, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: bodyColor }));
-    } else if (fixture.type === 'laser') {
-      // Small, compact low-poly body (octagonal prism) — signals "this is a different kind of thing."
-      body = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.16, 8), new THREE.MeshStandardMaterial({ color: bodyColor }));
-    } else if (caps.pan || caps.tilt) {
-      // Reads reasonably as a yoke/head already.
-      body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.3), new THREE.MeshStandardMaterial({ color: bodyColor }));
-    } else if (WIDE_HOUSING_TYPES.has(fixture.type)) {
-      // Wider/flatter low-poly housing — distinct from the small PAR can.
-      body = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.18, 0.24), new THREE.MeshStandardMaterial({ color: bodyColor }));
-    } else {
-      body = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.28, 8), new THREE.MeshStandardMaterial({ color: bodyColor }));
-    }
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1c1e28 });
+    const family = BEAM_FAMILY[fixture.type] || 'spot';
+
+    const body = this._buildFixtureBody(group, fixture, bodyMat);
     body.userData.fixtureId = fixture.id;
-    group.add(body);
 
     const lensColor = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const lens = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), lensColor);
@@ -397,11 +535,31 @@ export class StageRenderer {
     lens.userData.fixtureId = fixture.id;
     group.add(lens);
 
-    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-    const beam = new THREE.Mesh(unitBeamGeometry, beamMat);
-    this.scene.add(beam); // beam positioned in world space independent of group rotation
+    // Beam visual depends on the fixture's beam family: a laser gets a fan of
+    // thin parallel shafts (`laserBeams`, `beam` stays null); strip-family
+    // fixtures get a flat wash-curtain plane; everything else gets the cone,
+    // all added directly to the scene (world space, independent of group rotation).
+    let beam = null;
+    let laserBeams = null;
+    if (family === 'laserFan') {
+      laserBeams = [];
+      const count = fixture.params?.beamCount || 5;
+      for (let i = 0; i < count; i++) {
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+        const mesh = new THREE.Mesh(unitLaserGeometry, mat);
+        this.scene.add(mesh);
+        laserBeams.push(mesh);
+      }
+    } else {
+      const geometry = family === 'strip' ? unitWashGeometry : unitBeamGeometry;
+      const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      beam = new THREE.Mesh(geometry, beamMat);
+      this.scene.add(beam);
+    }
 
-    const light = fixture.type === 'ledstrip'
+    // Strip-family fixtures (ledstrip/striplight) are flat washes, not aimed
+    // point sources — no PointLight needed (the wash plane + pixels do the job).
+    const light = family === 'strip'
       ? null
       : new THREE.PointLight(0xffffff, 0, 10, 2);
     if (light) this.scene.add(light);
@@ -427,7 +585,7 @@ export class StageRenderer {
     }
 
     this.scene.add(group);
-    return { group, body, lens, beam, light, selectionRing, ledPixels, kind: fixture.type };
+    return { group, body, lens, beam, laserBeams, light, selectionRing, ledPixels, kind: fixture.type };
   }
 
   setSelected(id) {
@@ -442,6 +600,7 @@ export class StageRenderer {
       if (!fixture || !state) continue;
 
       const caps = FIXTURE_CAPS[fixture.type] || FIXTURE_CAPS.par;
+      const family = BEAM_FAMILY[fixture.type] || 'spot';
       const worldPos = vis.group.position;
 
       // Strobe: fast on/off gating purely for the render (engine value is unaffected).
@@ -453,7 +612,18 @@ export class StageRenderer {
       }
 
       const color = this._tmpColor.setRGB(state.color.r, state.color.g, state.color.b);
-      vis.body.material.emissive.copy(color).multiplyScalar(displayIntensity * 0.9);
+      if (family === 'flash' && state.strobe <= 0.03) {
+        // Flash-family fixtures (strobe/blinder) have no aimed beam — instead
+        // their own bulbs pulse continuously, even with no active strobe show,
+        // so they read as "a flashing panel" rather than a steady cone light.
+        // (An active show-driven strobe already flickers `displayIntensity`
+        // above via the gating block, so this idle pulse only applies when that isn't happening.)
+        const rateHz = fixture.params?.strobeRateHz || 6;
+        const pulse = 0.5 + 0.5 * Math.sin(time * rateHz * Math.PI * 2);
+        vis.body.material.emissive.copy(color).multiplyScalar(displayIntensity * (0.35 + pulse * 0.85));
+      } else {
+        vis.body.material.emissive.copy(color).multiplyScalar(displayIntensity * 0.9);
+      }
 
       if (vis.lens && vis.lens.material) {
         vis.lens.material.color.copy(color);
@@ -466,7 +636,9 @@ export class StageRenderer {
       // aimed at the floor it's already sitting on, so it aims up toward truss
       // height instead — a real uplighter washes the stage/crowd/backdrop from
       // below, not the ground under itself. Pan/tilt still sweep it the same way.
-      const floorMounted = worldPos.y <= FLOOR_MOUNT_Y;
+      // `uplight` fixtures are always floor uplighters by definition, regardless
+      // of how high they happen to be placed.
+      const floorMounted = fixture.type === 'uplight' || worldPos.y <= FLOOR_MOUNT_Y;
       const upliftY = Math.max((this._currentConfig?.trussY) || 6, worldPos.y + 4);
       const target = this._tmpTarget.set(worldPos.x, floorMounted ? upliftY : 0, worldPos.z);
       if (caps.pan) target.x += state.pan * 5;
@@ -481,26 +653,45 @@ export class StageRenderer {
       const dir = this._tmpDir.subVectors(target, worldPos);
       const dist = Math.max(0.3, dir.length());
       dir.normalize();
-      // LED strips don't project a beam at all — the mesh existed for every fixture
-      // regardless of type before this fix, so a strip rendered a phantom cone.
-      vis.beam.visible = fixture.type !== 'ledstrip' && displayIntensity > 0.02;
-      if (vis.beam.visible) {
-        vis.beam.position.copy(worldPos);
-        vis.beam.quaternion.setFromUnitVectors(this._up, dir);
-        // Beam width comes from the fixture's own spec (beamAngle), not just live zoom —
-        // otherwise every type looks identical since zoom defaults to the same constant
-        // for all of them. 40 matches today's implicit PAR-like default; /1.1 keeps a
-        // 40°/zoom-0.5 fixture at the old fixed visual width (no regression for PARs).
-        const beamAngle = fixture.params?.beamAngle ?? 40;
-        const baseWiden = clamp(beamAngle / 40, 0.06, 3.2);
-        const widen = baseWiden * (0.3 + (1 - state.zoom) * 1.6) / 1.1;
-        vis.beam.scale.set(widen, dist, widen);
-        vis.beam.material.color.copy(color);
-        // A laser reads as a bright, saturated line rather than a soft translucent wash.
-        const isLaser = beamAngle < 3;
-        vis.beam.material.opacity = isLaser ? Math.min(0.9, displayIntensity * 0.85) : Math.min(0.45, displayIntensity * 0.4);
-      } else {
+
+      if (family === 'laserFan') {
+        this._updateLaserBeams(vis, worldPos, dir, dist, color, displayIntensity, fixture);
+      } else if (family === 'strip') {
+        this._updateWashBeam(vis, worldPos, dir, dist, color, displayIntensity, fixture);
+      } else if (family === 'flash') {
+        // No aimed beam for flash-family fixtures — see the bulb-pulse block above.
+        vis.beam.visible = false;
         vis.beam.material.opacity = 0;
+      } else {
+        vis.beam.visible = displayIntensity > 0.02;
+        if (vis.beam.visible) {
+          vis.beam.position.copy(worldPos);
+          vis.beam.quaternion.setFromUnitVectors(this._up, dir);
+          // Beam width comes from the fixture's own spec (beamAngle), not just live zoom —
+          // otherwise every type looks identical since zoom defaults to the same constant
+          // for all of them. 40 matches today's implicit PAR-like default; /1.1 keeps a
+          // 40°/zoom-0.5 fixture at the old fixed visual width (no regression for PARs).
+          const beamAngle = fixture.params?.beamAngle ?? 40;
+          const baseWiden = clamp(beamAngle / 40, 0.06, 3.2);
+          let widen = baseWiden * (0.3 + (1 - state.zoom) * 1.6) / 1.1;
+          let opacityCap = 0.45;
+          let opacityGain = 0.4;
+          if (family === 'wash') {
+            // Soft and wide — a hair wider, a hair more translucent than a spot.
+            widen *= 1.15;
+            opacityCap = 0.38;
+          } else if (family === 'beam') {
+            // Thin, hard-edged, bright/saturated — a fundamentally different look
+            // from a soft wash, not just a numerically narrower one.
+            opacityCap = 0.85;
+            opacityGain = 0.8;
+          }
+          vis.beam.scale.set(widen, dist, widen);
+          vis.beam.material.color.copy(color);
+          vis.beam.material.opacity = Math.min(opacityCap, displayIntensity * opacityGain);
+        } else {
+          vis.beam.material.opacity = 0;
+        }
       }
 
       if (vis.ledPixels && state.pixels) {
@@ -528,6 +719,65 @@ export class StageRenderer {
 
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * A laser is a fan of thin, constant-width, PARALLEL shafts — not a cone
+   * that narrows toward the source. Each shaft is `dir` rotated slightly
+   * around world up, spread across `fanSpreadDeg`, and stretched past the
+   * aim point so it reads as continuing off into haze/the crowd rather than
+   * stopping dead at a target, the way a real laser does.
+   */
+  _updateLaserBeams(vis, worldPos, dir, dist, color, displayIntensity, fixture) {
+    const beams = vis.laserBeams;
+    const visible = displayIntensity > 0.02;
+    const count = beams.length;
+    const fanSpread = THREE.MathUtils.degToRad(fixture.params?.fanSpreadDeg ?? 22);
+    const laserLen = dist * 1.6;
+    for (let i = 0; i < count; i++) {
+      const mesh = beams[i];
+      mesh.visible = visible;
+      if (!visible) {
+        mesh.material.opacity = 0;
+        continue;
+      }
+      const t = count === 1 ? 0 : (i / (count - 1) - 0.5);
+      this._tmpFanQuat.setFromAxisAngle(this._up, t * fanSpread);
+      const beamDir = this._tmpFanDir.copy(dir).applyQuaternion(this._tmpFanQuat).normalize();
+      mesh.position.copy(worldPos);
+      mesh.quaternion.setFromUnitVectors(this._up, beamDir);
+      mesh.scale.set(1, laserLen, 1);
+      mesh.material.color.copy(color);
+      mesh.material.opacity = Math.min(0.9, 0.35 + displayIntensity * 0.55);
+    }
+  }
+
+  /**
+   * Strip-family fixtures (ledstrip/striplight) throw a flat curtain of light
+   * along their length, not a point-source cone. `dir` is always exactly
+   * vertical here (neither type has pan/tilt), so — unlike the radially-
+   * symmetric cone/laser shafts — we deliberately avoid
+   * `quaternion.setFromUnitVectors(up, dir)`: its roll around a perfectly
+   * vertical axis is arbitrary/unstable frame to frame, which is invisible on
+   * a cone but would make a flat plane's width axis visibly swim. Identity
+   * (aim down, the geometry already spans local Y 0..-1) or a fixed 180° flip
+   * about world X (aim up, floor-mounted uplighter case) both keep the
+   * plane's width axis pinned to world X.
+   */
+  _updateWashBeam(vis, worldPos, dir, dist, color, displayIntensity, fixture) {
+    const beam = vis.beam;
+    beam.visible = displayIntensity > 0.02;
+    if (!beam.visible) {
+      beam.material.opacity = 0;
+      return;
+    }
+    beam.position.copy(worldPos);
+    beam.quaternion.identity();
+    if (dir.y > 0) beam.quaternion.setFromAxisAngle(this._xAxis, Math.PI);
+    const len = fixture.type === 'ledstrip' ? (fixture.params?.lengthMeters || 2) : 1.2;
+    beam.scale.set(len, dist, 1);
+    beam.material.color.copy(color);
+    beam.material.opacity = Math.min(0.35, displayIntensity * 0.3);
   }
 
   // ---- selection / drag-to-move -------------------------------------------------

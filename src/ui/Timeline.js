@@ -173,9 +173,12 @@ export class TimelineView {
       ctx.strokeStyle = '#ff6a1a';
       ctx.lineWidth = 1.2;
       const frames = analysis.frames.energy;
-      const step = Math.max(1, Math.floor(frames.length / w));
       for (let x = 0; x < w; x++) {
-        const idx = Math.min(frames.length - 1, x * step);
+        // Proportional (x/w)*frames.length mapping, matching every other lane
+        // (cues/keyframes/beats/playhead all use (value/duration)*w) — a fixed
+        // integer stride here previously covered only a shrinking prefix of the
+        // song as `w` grew with zoom, so the waveform didn't zoom with everything else.
+        const idx = Math.min(frames.length - 1, Math.floor((x / w) * frames.length));
         const v = frames[idx] || 0;
         const y = laneEnergy - v * (laneEnergy - 4);
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
