@@ -23,6 +23,12 @@ const DEFAULT_MAX_POLAR_ANGLE = Math.PI * 0.49;
 const unitBeamGeometry = new THREE.CylinderGeometry(1, 0.04, 1, 20, 1, true);
 unitBeamGeometry.translate(0, 0.5, 0); // spans local Y 0..1 so scale.y == length
 
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+// Fixture types whose real housings are wider/flatter than a PAR can — gets a
+// distinct low-poly "housing" body shape instead of the default small cylinder.
+const WIDE_HOUSING_TYPES = new Set(['fresnel', 'profile', 'cyclight', 'blinder', 'striplight']);
+
 export class StageRenderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -362,13 +368,21 @@ export class StageRenderer {
     const group = new THREE.Group();
     group.userData.fixtureId = fixture.id;
     const bodyColor = 0x1c1e28;
+    const caps = FIXTURE_CAPS[fixture.type] || FIXTURE_CAPS.par;
     let body;
     if (fixture.type === 'ledstrip') {
       body = new THREE.Mesh(new THREE.BoxGeometry(fixture.params?.lengthMeters || 2, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: bodyColor }));
-    } else if (fixture.type === 'par' || fixture.type === 'strobe') {
-      body = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.28, 16), new THREE.MeshStandardMaterial({ color: bodyColor }));
-    } else {
+    } else if (fixture.type === 'laser') {
+      // Small, compact low-poly body (octagonal prism) — signals "this is a different kind of thing."
+      body = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.16, 8), new THREE.MeshStandardMaterial({ color: bodyColor }));
+    } else if (caps.pan || caps.tilt) {
+      // Reads reasonably as a yoke/head already.
       body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.3), new THREE.MeshStandardMaterial({ color: bodyColor }));
+    } else if (WIDE_HOUSING_TYPES.has(fixture.type)) {
+      // Wider/flatter low-poly housing — distinct from the small PAR can.
+      body = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.18, 0.24), new THREE.MeshStandardMaterial({ color: bodyColor }));
+    } else {
+      body = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.28, 8), new THREE.MeshStandardMaterial({ color: bodyColor }));
     }
     body.userData.fixtureId = fixture.id;
     group.add(body);
@@ -456,14 +470,24 @@ export class StageRenderer {
       const dir = this._tmpDir.subVectors(target, worldPos);
       const dist = Math.max(0.3, dir.length());
       dir.normalize();
-      vis.beam.visible = displayIntensity > 0.02;
+      // LED strips don't project a beam at all — the mesh existed for every fixture
+      // regardless of type before this fix, so a strip rendered a phantom cone.
+      vis.beam.visible = fixture.type !== 'ledstrip' && displayIntensity > 0.02;
       if (vis.beam.visible) {
         vis.beam.position.copy(worldPos);
         vis.beam.quaternion.setFromUnitVectors(this._up, dir);
-        const widen = 0.3 + (1 - state.zoom) * 1.6;
+        // Beam width comes from the fixture's own spec (beamAngle), not just live zoom —
+        // otherwise every type looks identical since zoom defaults to the same constant
+        // for all of them. 40 matches today's implicit PAR-like default; /1.1 keeps a
+        // 40°/zoom-0.5 fixture at the old fixed visual width (no regression for PARs).
+        const beamAngle = fixture.params?.beamAngle ?? 40;
+        const baseWiden = clamp(beamAngle / 40, 0.06, 3.2);
+        const widen = baseWiden * (0.3 + (1 - state.zoom) * 1.6) / 1.1;
         vis.beam.scale.set(widen, dist, widen);
         vis.beam.material.color.copy(color);
-        vis.beam.material.opacity = Math.min(0.45, displayIntensity * 0.4);
+        // A laser reads as a bright, saturated line rather than a soft translucent wash.
+        const isLaser = beamAngle < 3;
+        vis.beam.material.opacity = isLaser ? Math.min(0.9, displayIntensity * 0.85) : Math.min(0.45, displayIntensity * 0.4);
       } else {
         vis.beam.material.opacity = 0;
       }

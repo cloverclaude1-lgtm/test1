@@ -72,6 +72,7 @@ export class TimelineView {
     this.onCueChange = null;      // (cueId, {startTime, endTime}) => void — called live during resize/move
     this.onCueSelect = null;      // (cueId | null) => void
     this.onSceneDropped = null;   // (sceneId, time) => void
+    this.onAudioFileDropped = null; // (file) => void — an OS file drag (vs. a scene-row drag) onto the timeline
     this.onKeyframeChange = null; // (fixtureId, keyframeId) => void — called live during drag
     this.onKeyframeSelect = null; // (keyframeId | null) => void
 
@@ -98,6 +99,10 @@ export class TimelineView {
     canvas.addEventListener('drop', (e) => {
       e.preventDefault();
       canvas.classList.remove('drag-over');
+      if (e.dataTransfer.files.length > 0) {
+        this.onAudioFileDropped?.(e.dataTransfer.files[0]);
+        return;
+      }
       const sceneId = e.dataTransfer.getData('text/plain');
       if (!sceneId || !this._duration) return;
       this.onSceneDropped?.(sceneId, this._pixelToTime(e.clientX));

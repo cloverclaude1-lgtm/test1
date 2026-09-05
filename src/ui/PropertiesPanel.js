@@ -98,6 +98,21 @@ export function renderProperties(container, fixture, callbacks) {
   quickPosWrap.append(quickPosLabel, quickPosRow);
   container.appendChild(quickPosWrap);
 
+  // Floor placement: a separate Y-axis action (Quick Position above only ever
+  // touches X/Z) — snaps the fixture down to floor-mounted height without
+  // disturbing its truss role.
+  const floorWrap = document.createElement('div');
+  floorWrap.className = 'field';
+  const floorBtn = document.createElement('button');
+  floorBtn.className = 'btn btn-ghost tiny';
+  floorBtn.style.width = 'auto';
+  floorBtn.textContent = '⬇ Place on Floor';
+  floorBtn.addEventListener('click', () => {
+    callbacks.onChange({ position: { ...fixture.position, y: 0.15 } });
+  });
+  floorWrap.appendChild(floorBtn);
+  container.appendChild(floorWrap);
+
   // Position
   const posRow = document.createElement('div');
   posRow.className = 'field-row';

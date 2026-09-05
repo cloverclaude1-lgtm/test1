@@ -13,6 +13,7 @@ import {
 } from './project/ProjectManager.js';
 import { exportPlotPDF } from './project/PlotExport.js';
 import { openVersionHistoryModal } from './ui/VersionHistoryModal.js';
+import { openImportAudioModal } from './ui/ImportAudioModal.js';
 import { renderFixtureList } from './ui/FixturePanel.js';
 import { renderProperties } from './ui/PropertiesPanel.js';
 import { renderSceneList } from './ui/SceneList.js';
@@ -122,6 +123,21 @@ export class App {
     this._enterEditor();
   }
 
+  /**
+   * Imports a song mid-edit (replacing whatever's currently loaded), shared by
+   * the "Import Audio" drop-area modal, its "Browse Files" fallback, and
+   * dropping a file directly onto the timeline — all three just call this.
+   */
+  async _importAudioFile(file) {
+    await this.audioEngine.loadFromFile(file);
+    this.project.audio = { fileName: this.audioEngine.fileName, dataUrl: this.audioEngine.audioDataUrl, analysis: this.audioEngine.analysis };
+    this.project.timeline = [];
+    this.lightingEngine.resetClock(0);
+    this._refreshAll();
+    this._updateAddKeyframeButton();
+    showToast('Song imported and analyzed. Click "Generate Show" when ready.', { type: 'success', durationMs: 4000 });
+  }
+
   // =========================================================================
   // Onboarding
   // =========================================================================
@@ -214,6 +230,7 @@ export class App {
       this._timeline.onCueSelect = (cueId) => this._refreshCueInspector(cueId);
       this._timeline.onCueChange = () => this._refreshCueInspector(this._timeline.selectedCueId, { liveEdit: true });
       this._timeline.onSceneDropped = (sceneId, time) => this._onSceneDropped(sceneId, time);
+      this._timeline.onAudioFileDropped = safeHandler('Import Audio', (file) => this._importAudioFile(file));
       this._timeline.onKeyframeSelect = (keyframeId) => this._refreshKeyframeInspector(keyframeId);
       this._timeline.onKeyframeChange = () => this._refreshKeyframeInspector(this._timeline.selectedKeyframeId, { liveEdit: true });
       renderTimelineLegend(document.getElementById('timeline-legend'));
@@ -296,17 +313,9 @@ export class App {
     audioInput.accept = 'audio/*';
     audioInput.className = 'visually-hidden-input';
     document.body.appendChild(audioInput);
-    document.getElementById('menu-import-audio').addEventListener('click', safeHandler('Import Audio', () => audioInput.click()));
-    audioInput.addEventListener('change', safeHandler('Import Audio', async () => {
-      if (!audioInput.files[0]) return;
-      await this.audioEngine.loadFromFile(audioInput.files[0]);
-      this.project.audio = { fileName: this.audioEngine.fileName, dataUrl: this.audioEngine.audioDataUrl, analysis: this.audioEngine.analysis };
-      this.project.timeline = [];
-      this.lightingEngine.resetClock(0);
-      this._refreshAll();
-      this._updateAddKeyframeButton();
-      showToast('Song imported and analyzed. Click "Generate Show" when ready.', { type: 'success', durationMs: 4000 });
-      audioInput.value = '';
+    this._audioImportInput = audioInput;
+    document.getElementById('menu-import-audio').addEventListener('click', safeHandler('Import Audio', () => {
+      openImportAudioModal(this._audioImportInput, safeHandler('Import Audio', (file) => this._importAudioFile(file)));
     }));
 
     document.getElementById('menu-generate').addEventListener('click', safeHandler('Generate Show', async () => {
