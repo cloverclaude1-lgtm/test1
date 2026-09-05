@@ -15,6 +15,10 @@ import { STAGE_LAYOUTS } from './stageLayouts.js';
 
 const GRID_SNAP = 0.25;
 const DEFAULT_MAX_POLAR_ANGLE = Math.PI * 0.49;
+// A fixture mounted at or below this height is treated as floor-mounted (an
+// uplighter) rather than an overhead/truss fixture — see render()'s aim-point
+// logic. Matches the 0.15 height "Place on Floor" / floor rig presets use.
+const FLOOR_MOUNT_Y = 0.6;
 
 // radiusTop lands at local Y=1 (the floor end, after the beam is oriented fixture->floor
 // and stretched by `dist`); radiusBottom lands at local Y=0 (the fixture end, position.copy(worldPos)).
@@ -456,15 +460,22 @@ export class StageRenderer {
         vis.lens.material.color.multiplyScalar(0.3 + displayIntensity * 0.9);
       }
 
-      // Aim point: PAR/LED point straight down; movable fixtures sweep pan/tilt across the stage.
-      const target = this._tmpTarget.set(worldPos.x, 0, worldPos.z);
+      // Aim point: overhead fixtures point down at the stage floor as before. A
+      // fixture mounted AT/NEAR the floor (an uplighter — "Place on Floor" in
+      // Properties, or the floor-height entries in rig presets) makes no sense
+      // aimed at the floor it's already sitting on, so it aims up toward truss
+      // height instead — a real uplighter washes the stage/crowd/backdrop from
+      // below, not the ground under itself. Pan/tilt still sweep it the same way.
+      const floorMounted = worldPos.y <= FLOOR_MOUNT_Y;
+      const upliftY = Math.max((this._currentConfig?.trussY) || 6, worldPos.y + 4);
+      const target = this._tmpTarget.set(worldPos.x, floorMounted ? upliftY : 0, worldPos.z);
       if (caps.pan) target.x += state.pan * 5;
       if (caps.tilt) target.z += -1 + state.tilt * 4;
 
       if (vis.light) {
         vis.light.color.copy(color);
         vis.light.intensity = caps.pan || caps.tilt ? displayIntensity * 3.2 : displayIntensity * 2.2;
-        vis.light.position.set(target.x, 0.3, target.z);
+        vis.light.position.set(target.x, floorMounted ? Math.min(target.y, 4) : 0.3, target.z);
       }
 
       const dir = this._tmpDir.subVectors(target, worldPos);
