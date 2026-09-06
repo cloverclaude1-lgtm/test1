@@ -26,7 +26,12 @@ body {
   background: var(--bg-0);
   color: var(--text-0);
   font-family: var(--font);
-  overflow: hidden;
+  /* `auto` (not `hidden`) so an aspect ratio too tight for the editor's fixed
+     vertical chrome (menubar + timeline) to fit even after `.main-body`'s own
+     horizontal scroll (below) still leaves everything reachable via a page
+     scrollbar, instead of silently clipping content off-screen with no way
+     to get to it. */
+  overflow: auto;
 }
 
 button {
@@ -190,8 +195,17 @@ button {
   padding: 0 12px;
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
+  /* On a narrow/4:3 window the menubar's buttons don't all fit at once —
+     without this the overflow used to propagate up to the whole page (a
+     page-level horizontal scrollbar that dragged the stage/panels along
+     with it just to reach "Help"). Scrolling the bar itself instead keeps
+     every button reachable without moving anything else. Previously only
+     applied for `pointer: coarse` (touch); a mouse-and-keyboard window can
+     be just as narrow, so this is no longer conditional on pointer type. */
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
-.menubar-left, .menubar-right { display: flex; align-items: center; gap: 4px; }
+.menubar-left, .menubar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .view-mode-group { display: flex; gap: 2px; }
 .brand { font-weight: 700; margin-right: 14px; letter-spacing: 0.3px; }
 .menu-item {
@@ -216,11 +230,21 @@ button {
   flex: 1;
   display: flex;
   min-height: 0;
+  /* Fallback for whatever the clamps below still can't fit (an extreme
+     aspect ratio): scroll to the clipped panel instead of losing it — the
+     panels stay permanently visible either way, nothing is hidden by default. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .panel {
-  width: 250px;
-  min-width: 250px;
+  /* Was a flat 250px — a hard floor that, combined with the other side
+     panel and the stage's own minimum, didn't fit a 4:3/narrower window at
+     all. Fluid between 160px and 250px so both panels shrink first instead
+     of immediately forcing the fallback scroll above. */
+  width: clamp(160px, 20vw, 250px);
+  min-width: 160px;
+  flex-shrink: 0;
   background: var(--bg-1);
   padding: 14px;
   overflow-y: auto;
@@ -281,7 +305,9 @@ button {
 
 .stage-area {
   flex: 1;
-  min-width: 0;
+  /* A small explicit floor (was 0) so the 3D view never gets squeezed away
+     to nothing — beyond this, `.main-body`'s horizontal scroll takes over. */
+  min-width: 160px;
   min-height: 0;
   position: relative;
   background: #000;
@@ -315,8 +341,11 @@ button {
 .rule-summary b { color: var(--accent-3); }
 
 .transport {
-  height: 150px;
-  min-height: 150px;
+  /* Was a flat 150px floor — fluid down to 100px on a shorter/more-square
+     window so the stage view keeps more of the available height instead of
+     the timeline unconditionally claiming a third of a 4:3 window. */
+  height: clamp(100px, 16vh, 150px);
+  min-height: 100px;
   border-top: 1px solid var(--border);
   background: var(--bg-1);
   display: flex;
@@ -453,14 +482,12 @@ button {
 }
 
 /* Bigger touch targets on touch devices — the menubar packs several small
-   buttons edge-to-edge, which is easy to mis-tap on a phone/tablet.
-   The menubar now has more buttons than fit in one row on a phone-width
-   screen; wrapping them made the second row overflow the fixed-height bar
-   and get clipped/overlapped by the browser's own UI. Scrolling horizontally
-   instead keeps every button reachable and the bar's height fixed/predictable. */
+   buttons edge-to-edge, which is easy to mis-tap on a phone/tablet. Horizontal
+   scroll-to-reach-everything is now the base `.menubar` behavior (not
+   touch-only, see above) — this block only adds touch-appropriate sizing. */
 @media (pointer: coarse) {
-  .menubar { height: 56px; min-height: 56px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .menubar-left, .menubar-right { flex-shrink: 0; gap: 8px; }
+  .menubar { height: 56px; min-height: 56px; -webkit-overflow-scrolling: touch; }
+  .menubar-left, .menubar-right { gap: 8px; }
   .menu-item, .btn.small, .style-select { flex-shrink: 0; white-space: nowrap; }
   .menu-item { padding: 10px 14px; font-size: 13.5px; min-height: 40px; }
   .btn.small { padding: 10px 16px; font-size: 13px; min-height: 40px; }

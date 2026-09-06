@@ -238,6 +238,12 @@ export class App {
       this._bindKeyframeInspector();
       document.getElementById('timeline-zoom').addEventListener('input', (e) => this._timeline.setZoom(parseFloat(e.target.value)));
       window.addEventListener('resize', () => { this._stageRenderer.resize(); this._timeline.resize(); });
+      // The stage/timeline now reflow off their own container size (CSS
+      // clamp()s driven by vw/vh, not just fixed px), so a window resize
+      // isn't the only thing that can change `.stage-area`'s actual pixel
+      // size — a ResizeObserver on the container itself is the correct way
+      // to keep the canvas in sync regardless of what caused the reflow.
+      new ResizeObserver(() => this._stageRenderer.resize()).observe(document.querySelector('.stage-area'));
       this._startRenderLoop();
     }
 
