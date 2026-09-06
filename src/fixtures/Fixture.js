@@ -72,7 +72,9 @@ export const FIXTURE_TYPES = {
   laser: {
     label: 'Laser',
     capabilities: { color: true, pan: true, tilt: true, zoom: false, strobe: false },
-    defaultParams: { beamAngle: 0.5 },
+    // beamCount: how many parallel beams the fan renders (StageRenderer.js) —
+    // user-editable in PropertiesPanel, 1-10.
+    defaultParams: { beamAngle: 0.5, beamCount: 5 },
   },
   cyclight: {
     label: 'Cyc / Floodlight',

@@ -53,6 +53,27 @@ function keyframeNotice(fixture, onClear) {
 }
 
 /**
+ * How many parallel beams a laser fixture's fan renders (StageRenderer.js's
+ * `_updateLaserBeams`/`_createFixtureVisual`) — 1 for a single tight shaft up
+ * to 10 for a wide fan. Whole-object replacement on `fixture.params` matches
+ * how every other nested-field patch in this file works (position, override).
+ */
+function laserBeamCountField(fixture, onChange) {
+  const select = document.createElement('select');
+  for (let n = 1; n <= 10; n++) {
+    const opt = document.createElement('option');
+    opt.value = String(n);
+    opt.textContent = n === 1 ? '1 beam' : `${n} beams`;
+    if (n === (fixture.params?.beamCount ?? 5)) opt.selected = true;
+    select.appendChild(opt);
+  }
+  select.addEventListener('change', () => {
+    onChange({ params: { ...fixture.params, beamCount: parseInt(select.value, 10) } });
+  });
+  return field('Beam Count', select);
+}
+
+/**
  * Renders the manual-override controls for the selected fixture (brief §20).
  * Each row has a checkbox: checked -> a manual value overrides the automatic
  * lighting; unchecked -> the field is deleted from fixture.override and the
@@ -127,6 +148,10 @@ export function renderProperties(container, fixture, callbacks) {
     posRow.appendChild(field(axis.toUpperCase(), input));
   });
   container.appendChild(posRow);
+
+  if (fixture.type === 'laser') {
+    container.appendChild(laserBeamCountField(fixture, callbacks.onChange));
+  }
 
   container.appendChild(overrideRow('Brightness', 'intensity', override, (v) => callbacks.onOverride('intensity', v), 'range', { min: 0, max: 1, step: 0.01 }));
   container.appendChild(overrideColorRow('Color', override, (v) => callbacks.onOverride('color', v)));

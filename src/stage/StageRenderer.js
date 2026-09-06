@@ -56,6 +56,10 @@ const SHARED_NO_DISPOSE = new Set([
 ]);
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+// Matches the PropertiesPanel "Beam Count" dropdown's 1-10 range — clamped
+// here too so a hand-edited/imported project with an out-of-range value
+// can't allocate a runaway (or zero-length) beam-fan mesh array.
+function clampLaserBeamCount(v) { return clamp(Math.round(v || 5), 1, 10); }
 
 // What KIND of beam each fixture type throws — controls shape/behavior, not
 // just width, so types read as genuinely different kinds of light:
@@ -411,6 +415,15 @@ export class StageRenderer {
     for (const fixture of fixtures) {
       seen.add(fixture.id);
       let vis = this.fixtureVisuals.get(fixture.id);
+      // A laser's beam-fan mesh array is allocated once, sized at creation
+      // time (see _createFixtureVisual) — if the user changed its beam
+      // count since, that array is now the wrong size and can't be
+      // resized in place, so rebuild this one fixture's visual from scratch.
+      if (vis && fixture.type === 'laser' && vis.laserBeams && vis.laserBeams.length !== clampLaserBeamCount(fixture.params?.beamCount)) {
+        this._disposeFixtureVisual(vis);
+        this.fixtureVisuals.delete(fixture.id);
+        vis = null;
+      }
       if (!vis) {
         vis = this._createFixtureVisual(fixture);
         this.fixtureVisuals.set(fixture.id, vis);
@@ -584,7 +597,7 @@ export class StageRenderer {
     let laserBeams = null;
     if (family === 'laserFan') {
       laserBeams = [];
-      const count = fixture.params?.beamCount || 5;
+      const count = clampLaserBeamCount(fixture.params?.beamCount);
       for (let i = 0; i < count; i++) {
         const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
         const mesh = new THREE.Mesh(unitLaserGeometry, mat);
