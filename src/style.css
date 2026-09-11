@@ -206,7 +206,6 @@ button {
   scrollbar-width: thin;
 }
 .menubar-left, .menubar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.view-mode-group { display: flex; gap: 2px; }
 .brand { font-weight: 700; margin-right: 14px; letter-spacing: 0.3px; }
 .menu-item {
   background: none;
@@ -333,6 +332,26 @@ button {
   color: var(--text-0);
   white-space: nowrap;
   box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+
+/* Camera view toggle (3D/Top/Front) — lives on the stage view itself, not
+   the menubar, since it's specifically about the stage preview. Unlike the
+   fps counter/hover label above (both pointer-events:none, purely
+   informational), this stays clickable. A translucent backdrop keeps it
+   legible floating directly over an arbitrary 3D scene, the way
+   .fixture-hover-label already needs one. */
+.view-mode-group {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(18, 19, 25, 0.75);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
 }
 
 .properties-panel { display: flex; flex-direction: column; gap: 10px; }
