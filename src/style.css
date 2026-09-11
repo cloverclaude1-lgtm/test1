@@ -316,6 +316,25 @@ button {
 .stage-overlay { position: absolute; top: 8px; left: 8px; pointer-events: none; }
 .fps-counter { font-size: 10px; color: rgba(255,255,255,0.35); font-family: monospace; }
 
+/* Floating name label above whichever fixture is hovered — position (left/top)
+   is set inline in JS every frame from the fixture's projected screen coords
+   (App.js's render loop), this just anchors/styles the pill itself. The
+   transform anchors the pill's bottom-center on that point so it sits just
+   above the fixture regardless of label width, and never intercepts clicks. */
+.fixture-hover-label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  background: rgba(18, 19, 25, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: var(--text-0);
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+
 .properties-panel { display: flex; flex-direction: column; gap: 10px; }
 .empty-hint { color: var(--text-2); font-size: 12px; }
 .field { display: flex; flex-direction: column; gap: 4px; }

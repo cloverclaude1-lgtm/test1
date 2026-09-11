@@ -121,11 +121,34 @@ export class StageRenderer {
     this._dragging = null; // fixtureId being dragged
     this._dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
+    // Fixture bodies are tiny (~0.1-0.3 world units) — a click that's
+    // visually "on" one but a few pixels off the exact mesh otherwise
+    // silently misses. This is the effective click/hover radius (in CSS
+    // pixels) used as a fallback when the precise raycast doesn't hit
+    // anything — see _pickFixtureNear().
+    this._pickRadiusPx = 28;
+    this._hoveredId = null; // fixtureId the pointer is currently near, or null
+    this._tmpScreen = new THREE.Vector3(); // scratch for world->screen projection
+
+    // Single shared glow ring for whichever fixture is currently hovered —
+    // only one can be hovered at a time, so unlike selectionRing (one per
+    // fixture) this is one mesh, repositioned in render(). Slightly larger
+    // than selectionRing and additive-blended so a hovered+selected fixture
+    // reads as two concentric rings instead of a hard overlap.
+    this._hoverRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.42, 0.52, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+    );
+    this._hoverRing.rotation.x = -Math.PI / 2;
+    this.scene.add(this._hoverRing);
+
     this.onFixtureClick = null; // (id|null) => void
     this.onFixtureMoved = null; // (id, {x,y,z}) => void
+    this.onFixtureHover = null; // (fixture|null) => void — fires only when the hovered fixture changes
 
     canvas.addEventListener('pointerdown', this._onPointerDown.bind(this));
     canvas.addEventListener('pointermove', this._onPointerMove.bind(this));
+    canvas.addEventListener('pointerleave', this._onPointerLeave.bind(this));
     window.addEventListener('pointerup', this._onPointerUp.bind(this));
 
     // Without this, a lost WebGL context (more likely the longer/heavier a
@@ -440,6 +463,11 @@ export class StageRenderer {
         this.fixtureVisuals.delete(id);
       }
     }
+    // The hovered fixture may have just been deleted out from under the
+    // cursor (e.g. via its delete button) — without this the glow ring/label
+    // would stay stuck on a fixture that no longer exists until the mouse
+    // happens to move again.
+    if (this._hoveredId && !this.fixtureVisuals.has(this._hoveredId)) this._setHovered(null);
   }
 
   /**
@@ -760,6 +788,17 @@ export class StageRenderer {
       vis.selectionRing.material.opacity = isSelected ? 0.7 : 0;
     }
 
+    // Hovered fixture's glow ring — a subtle "here's what you'd click" cue,
+    // distinct from (and layered outside) the solid purple selection ring.
+    const hoveredVis = this._hoveredId ? this.fixtureVisuals.get(this._hoveredId) : null;
+    if (hoveredVis) {
+      const p = hoveredVis.group.position;
+      this._hoverRing.position.set(p.x, 0.035, p.z);
+      this._hoverRing.material.opacity = 0.35;
+    } else {
+      this._hoverRing.material.opacity = 0;
+    }
+
     // Screen reflects the overall wash colour — cheap "video screen" ambience.
     if (this.screenMesh) {
       let r = 0, g = 0, b = 0, n = 0;
@@ -834,8 +873,20 @@ export class StageRenderer {
     beam.material.opacity = Math.min(0.35, displayIntensity * 0.3);
   }
 
-  // ---- selection / drag-to-move -------------------------------------------------
-  _pickFixtureAt(event) {
+  // ---- selection / hover / drag-to-move -----------------------------------------
+  /**
+   * Finds the fixture nearest the pointer, forgiving near-misses. First
+   * tries an exact raycast against the fixture meshes themselves (a precise
+   * hit always wins outright); if that misses, falls back to screen-space
+   * nearest-neighbor — projects every fixture's position to canvas pixels
+   * and picks whichever is closest to the cursor within `_pickRadiusPx`.
+   * Fixture bodies are small enough on screen that requiring an exact mesh
+   * hit made clicking (and, now, hovering) unreasonably fiddly. Used by both
+   * click/drag-start and hover, so whatever the user can hover, they can
+   * click. Known simplification: the fallback doesn't test 3D occlusion —
+   * like a map pin, "nearest on screen" is good enough here.
+   */
+  _pickFixtureNear(event) {
     const rect = this.canvas.getBoundingClientRect();
     this._pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this._pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -843,14 +894,50 @@ export class StageRenderer {
     const meshes = [];
     for (const vis of this.fixtureVisuals.values()) vis.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
     const hits = this._raycaster.intersectObjects(meshes, false);
-    if (!hits.length) return null;
-    let obj = hits[0].object;
-    while (obj && !obj.userData.fixtureId) obj = obj.parent;
-    return obj ? obj.userData.fixtureId : null;
+    if (hits.length) {
+      let obj = hits[0].object;
+      while (obj && !obj.userData.fixtureId) obj = obj.parent;
+      if (obj) return obj.userData.fixtureId;
+    }
+
+    const px = event.clientX - rect.left;
+    const py = event.clientY - rect.top;
+    let bestId = null;
+    let bestDist = this._pickRadiusPx;
+    for (const [id, vis] of this.fixtureVisuals) {
+      this._tmpScreen.copy(vis.group.position).project(this.camera);
+      if (this._tmpScreen.z > 1) continue; // behind the camera
+      const sx = (this._tmpScreen.x * 0.5 + 0.5) * rect.width;
+      const sy = (-this._tmpScreen.y * 0.5 + 0.5) * rect.height;
+      const dist = Math.hypot(sx - px, sy - py);
+      if (dist < bestDist) { bestDist = dist; bestId = id; }
+    }
+    return bestId;
+  }
+
+  /** Screen position (canvas-relative CSS pixels) of a fixture's label anchor, or null if hovered/off-screen. */
+  getHoverLabelScreenPosition() {
+    if (!this._hoveredId) return null;
+    const vis = this.fixtureVisuals.get(this._hoveredId);
+    if (!vis) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    this._tmpScreen.set(vis.group.position.x, vis.group.position.y + 0.35, vis.group.position.z).project(this.camera);
+    if (this._tmpScreen.z > 1) return null; // behind the camera
+    return {
+      x: (this._tmpScreen.x * 0.5 + 0.5) * rect.width,
+      y: (-this._tmpScreen.y * 0.5 + 0.5) * rect.height,
+    };
+  }
+
+  _setHovered(id) {
+    if (id === this._hoveredId) return;
+    this._hoveredId = id;
+    this.canvas.style.cursor = id ? 'pointer' : '';
+    this.onFixtureHover?.(id ? this.fixtureVisuals.get(id)?.fixture ?? null : null);
   }
 
   _onPointerDown(event) {
-    const id = this._pickFixtureAt(event);
+    const id = this._pickFixtureNear(event);
     this.onFixtureClick?.(id);
     if (id) {
       this._dragging = id;
@@ -860,7 +947,10 @@ export class StageRenderer {
   }
 
   _onPointerMove(event) {
-    if (!this._dragging) return;
+    if (!this._dragging) {
+      this._setHovered(this._pickFixtureNear(event));
+      return;
+    }
     const rect = this.canvas.getBoundingClientRect();
     this._pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this._pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -876,6 +966,10 @@ export class StageRenderer {
     }
   }
 
+  _onPointerLeave() {
+    this._setHovered(null);
+  }
+
   _onPointerUp() {
     this._dragging = null;
     this.controls.enabled = true;
@@ -883,6 +977,8 @@ export class StageRenderer {
 
   dispose() {
     this.renderer.dispose();
+    this._hoverRing.geometry.dispose();
+    this._hoverRing.material.dispose();
   }
 }
 

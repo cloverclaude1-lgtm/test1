@@ -5,7 +5,7 @@ import { STAGE_LAYOUT_IDS, STAGE_LAYOUTS } from './stage/stageLayouts.js';
 import { RIG_PRESET_IDS, RIG_PRESETS, applyRigPreset } from './project/rigPresets.js';
 import { generateShow } from './lighting/ShowGenerator.js';
 import { STYLE_IDS, STYLES } from './lighting/stylePresets.js';
-import { createFixture, inferRole } from './fixtures/Fixture.js';
+import { createFixture, inferRole, FIXTURE_TYPES } from './fixtures/Fixture.js';
 import { showToast, showConfirm } from './ui/Toast.js';
 import { openTutorial } from './ui/Tutorial.js';
 import {
@@ -222,6 +222,11 @@ export class App {
       this._stageRenderer.onFixtureMoved = (id, pos) => {
         const f = this.project.fixtures.find((x) => x.id === id);
         if (f) { f.position = pos; f.role = inferRole(pos); this._refreshProperties(); this._refreshGroups(); }
+      };
+      const hoverLabel = document.getElementById('fixture-hover-label');
+      this._stageRenderer.onFixtureHover = (fixture) => {
+        hoverLabel.classList.toggle('hidden', !fixture);
+        if (fixture) hoverLabel.textContent = `${fixture.name} — ${FIXTURE_TYPES[fixture.type]?.label || fixture.type}`;
       };
       this._stageRenderer.onContextLost = () => showToast('Graphics context lost — recovering…', { type: 'error' });
       this._stageRenderer.onContextRestored = () => showToast('Graphics recovered.', { type: 'success' });
@@ -1007,6 +1012,17 @@ export class App {
         const states = this.lightingEngine.update(time, this.audioEngine.featureStream, this.project);
         this._lastComputedStates = states;
         this._stageRenderer.render(states, time);
+        // OrbitControls can move the camera continuously (orbit/zoom) without
+        // ever firing a pointer event, so the hovered fixture's on-screen
+        // position needs to be re-checked every frame, not just when the
+        // hover target itself changes (that only sets visibility/text, see
+        // onFixtureHover above).
+        const hoverPos = this._stageRenderer.getHoverLabelScreenPosition();
+        if (hoverPos) {
+          const hoverLabel = document.getElementById('fixture-hover-label');
+          hoverLabel.style.left = `${hoverPos.x}px`;
+          hoverLabel.style.top = `${hoverPos.y}px`;
+        }
         this._timeline.draw(this.project, time, this.audioEngine.duration);
 
         const dur = this.audioEngine.duration;
