@@ -150,6 +150,10 @@ export class StageRenderer {
     canvas.addEventListener('pointermove', this._onPointerMove.bind(this));
     canvas.addEventListener('pointerleave', this._onPointerLeave.bind(this));
     window.addEventListener('pointerup', this._onPointerUp.bind(this));
+    // A cancelled touch (e.g. the OS intercepts it for a system gesture)
+    // never fires pointerup — without this, a fixture drag or hover state
+    // started by that touch would stay stuck forever.
+    window.addEventListener('pointercancel', this._onPointerUp.bind(this));
 
     // Without this, a lost WebGL context (more likely the longer/heavier a
     // session runs — memory pressure, GPU driver hiccups, tab backgrounding)
@@ -970,9 +974,13 @@ export class StageRenderer {
     this._setHovered(null);
   }
 
-  _onPointerUp() {
+  _onPointerUp(event) {
     this._dragging = null;
     this.controls.enabled = true;
+    // Touch has no real "hover" — whether pointerleave reliably fires after
+    // a tap lifts varies across mobile browser engines, so clear explicitly
+    // here too rather than risk the glow ring/label sticking after a tap.
+    if (event?.pointerType === 'touch') this._setHovered(null);
   }
 
   dispose() {

@@ -215,6 +215,12 @@ export class App {
   _enterEditor() {
     document.getElementById('onboarding').classList.add('hidden');
     document.getElementById('editor').classList.remove('hidden');
+    // The onboarding screen can be taller than a phone viewport (its "Open
+    // editor" link sits below the fold), and `body` now scrolls (see the
+    // aspect-ratio fix in style.css) — without this, that leftover scroll
+    // position carries straight over into the editor, which can land the
+    // viewport on a blank stretch of the new layout instead of the top.
+    window.scrollTo(0, 0);
 
     if (!this._stageRenderer) {
       this._stageRenderer = new StageRenderer(document.getElementById('stage-canvas'));

@@ -529,4 +529,44 @@ button {
   .menu-item, .btn.small, .style-select { flex-shrink: 0; white-space: nowrap; }
   .menu-item { padding: 10px 14px; font-size: 13.5px; min-height: 40px; }
   .btn.small { padding: 10px 16px; font-size: 13px; min-height: 40px; }
+
+  /* The menubar wasn't the only place with fingertip-sized targets — these
+     are the buttons/rows that actually fill both side panels (Quick
+     Position, Place on Floor, every "+Add"/"Apply..." action, and the
+     eye/tag/duplicate/delete icons on every fixture/group/scene row, the
+     smallest tap targets in the app before this). */
+  .btn.tiny { padding: 9px 12px; font-size: 12.5px; min-height: 38px; }
+  .palette-btn { padding: 12px 8px; font-size: 12.5px; min-height: 42px; }
+  .icon-btn { padding: 7px 8px; font-size: 14px; min-width: 32px; min-height: 32px; }
+  .fixture-row, .group-row, .scene-row, .rule-row { padding: 10px 12px; }
+}
+
+/* Phone-width layout: below this, the side-by-side row (two fluid-width
+   panels + stage) has nowhere left to shrink — on a ~390px phone the two
+   panels' own 160px floors alone exceed the viewport, pushing the 3D stage
+   (the actual point of the app) out to where reaching it means scrolling
+   sideways past a panel. Stack everything vertically instead so the stage
+   gets a real, guaranteed share of the screen and both panels stay reachable
+   by an ordinary vertical scroll — panels stay fully visible either way (an
+   earlier hidden-by-default drawer attempt was reverted specifically because
+   hiding them made the app "look broken"), this only changes the axis they're
+   laid out on. Chosen at 700px so landscape phones (~700px+ wide), which still
+   have room for the normal side-by-side layout, are unaffected. */
+@media (max-width: 700px) {
+  .main-body { flex-direction: column; overflow-x: hidden; overflow-y: auto; }
+  .panel { width: 100%; min-width: 0; max-height: 32vh; flex-shrink: 1; }
+  .stage-area { min-width: 0; min-height: 45vh; }
+  /* Was sized/positioned assuming a wide stage area — constrain it so it can
+     never extend past the now much narrower stage's visible bounds. */
+  .view-mode-group { max-width: calc(100% - 16px); flex-wrap: wrap; }
+
+  /* .transport-controls (play/stop/+Keyframe/time/zoom/legend) has no wrap
+     and no scroll handling of its own — on a narrow phone its combined
+     content genuinely doesn't fit and was overflowing the whole page
+     (document.documentElement.scrollWidth exceeding the viewport), the one
+     real horizontal-overflow bug found in testing. Same fix as the
+     menubar: scroll the row itself instead of forcing anything to wrap
+     into `.transport`'s otherwise-fixed height. */
+  .transport-controls { overflow-x: auto; flex-wrap: nowrap; }
+  .transport-controls > * { flex-shrink: 0; }
 }
