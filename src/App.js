@@ -22,9 +22,6 @@ import { renderGroupList, openGroupModal, openAssignGroupsModal } from './ui/Gro
 import { createCustomGroup } from './lighting/Groups.js';
 import { TimelineView, renderTimelineLegend, MIN_CUE_DURATION } from './ui/Timeline.js';
 
-// Maps AudioAnalyzer's onProgress `stage` names to the checklist's pipeline order
-// (see index.html #analysis-checklist data-order attributes).
-const STAGE_ORDER = { decode: 0, freq: 1, beats: 2, sections: 3, done: 4 };
 const DEFAULT_DROPPED_CUE_DURATION = 8;
 
 // "Event templates" — a one-click starting point that composes an existing rig
@@ -67,22 +64,23 @@ export class App {
     this.audioEngine = new AudioEngine();
     this.lightingEngine = new LightingEngine();
     this.selectedFixtureId = null;
-    this.selectedStyle = 'edm';
     this.advancedMode = false;
     this._defaultReactivityBand = 'none';
     this._clipboard = null;
 
     this._bindOpenProjectFlow();
-    this._bindOnboarding();
     this._bindEditorShell();
     this._bindKeyboardShortcuts();
     this._fpsSamples = [];
+    // No onboarding screen — land straight in the editor with a fresh
+    // default project (Import Audio/Generate Show/Open Project in the
+    // menubar cover what the onboarding screen used to offer up front).
+    this._enterEditor();
   }
 
   /**
-   * The "Open Project" file input + its handling, shared by the onboarding
-   * screen's "Open an existing project" link and the editor menubar's "Open
-   * Project" button — both just call `this._openProjectInput.click()`.
+   * The "Open Project" file input + its handling, triggered by the editor
+   * menubar's "Open Project" button via `this._openProjectInput.click()`.
    */
   _bindOpenProjectFlow() {
     const openInput = document.createElement('input');
@@ -138,90 +136,7 @@ export class App {
     showToast('Song imported and analyzed. Click "Generate Show" when ready.', { type: 'success', durationMs: 4000 });
   }
 
-  // =========================================================================
-  // Onboarding
-  // =========================================================================
-  _bindOnboarding() {
-    const dropzone = document.getElementById('dropzone');
-    const fileInput = document.getElementById('file-input');
-    const addBtn = document.getElementById('btn-add-song');
-    const demoBtn = document.getElementById('btn-demo-song');
-    const generateBtn = document.getElementById('btn-generate');
-    const skipBtn = document.getElementById('btn-skip-onboarding');
-
-    addBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files[0]) this._handleSongFile(fileInput.files[0]);
-    });
-
-    ['dragover', 'dragenter'].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }));
-    ['dragleave', 'drop'].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
-    dropzone.addEventListener('drop', (e) => {
-      const file = e.dataTransfer.files[0];
-      if (file) this._handleSongFile(file);
-    });
-
-    demoBtn.addEventListener('click', async () => {
-      const res = await fetch('./demo-song.wav');
-      const blob = await res.blob();
-      this._handleSongFile(new File([blob], 'LightStage Demo.wav', { type: 'audio/wav' }));
-    });
-
-    document.querySelectorAll('.style-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.style-btn').forEach((b) => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        this.selectedStyle = btn.dataset.style;
-      });
-    });
-    document.querySelector(`.style-btn[data-style="${this.selectedStyle}"]`)?.classList.add('selected');
-
-    generateBtn.addEventListener('click', () => this._generateFromOnboarding());
-    skipBtn.addEventListener('click', () => this._enterEditor());
-    document.getElementById('btn-open-project').addEventListener('click', () => this._openProjectInput.click());
-  }
-
-  async _handleSongFile(file) {
-    const checklist = document.getElementById('analysis-checklist');
-    checklist.querySelectorAll('li').forEach((li) => li.classList.remove('done', 'active'));
-    document.getElementById('song-info').classList.remove('hidden');
-    document.getElementById('song-name').textContent = file.name;
-
-    this.audioEngine.onAnalysisProgress = (progress, stage) => {
-      const order = STAGE_ORDER[stage] ?? 0;
-      checklist.querySelectorAll('li').forEach((li) => {
-        const liOrder = parseInt(li.dataset.order, 10);
-        if (liOrder < order) li.classList.add('done');
-        else if (liOrder === order) li.classList.add('active');
-      });
-    };
-
-    await this.audioEngine.loadFromFile(file);
-    checklist.querySelectorAll('li').forEach((li) => li.classList.add('done'));
-    document.getElementById('btn-generate').disabled = false;
-  }
-
-  async _generateFromOnboarding() {
-    if (!this.audioEngine.analysis) return;
-    this._applyGeneratedShow(this.selectedStyle);
-    this.project.audio = {
-      fileName: this.audioEngine.fileName,
-      dataUrl: this.audioEngine.audioDataUrl,
-      analysis: this.audioEngine.analysis,
-    };
-    this._enterEditor();
-  }
-
   _enterEditor() {
-    document.getElementById('onboarding').classList.add('hidden');
-    document.getElementById('editor').classList.remove('hidden');
-    // The onboarding screen can be taller than a phone viewport (its "Open
-    // editor" link sits below the fold), and `body` now scrolls (see the
-    // aspect-ratio fix in style.css) — without this, that leftover scroll
-    // position carries straight over into the editor, which can land the
-    // viewport on a blank stretch of the new layout instead of the top.
-    window.scrollTo(0, 0);
-
     if (!this._stageRenderer) {
       this._stageRenderer = new StageRenderer(document.getElementById('stage-canvas'));
       this._stageRenderer.onFixtureClick = (id) => this.selectFixture(id);

@@ -41,46 +41,7 @@ button {
 
 .hidden { display: none !important; }
 
-/* ============ Onboarding ============ */
-.onboarding {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background:
-    radial-gradient(circle at 20% 20%, rgba(255, 106, 26, 0.18), transparent 45%),
-    radial-gradient(circle at 80% 70%, rgba(255, 147, 70, 0.14), transparent 45%),
-    var(--bg-0);
-}
-
-.onboarding-card {
-  width: min(640px, 92vw);
-  padding: 40px 44px 36px;
-  background: rgba(18, 19, 25, 0.75);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  backdrop-filter: blur(12px);
-  text-align: center;
-  box-shadow: 0 30px 80px rgba(0,0,0,0.5);
-}
-
-.onboarding-card h1 {
-  margin: 0 0 4px;
-  font-size: 34px;
-  letter-spacing: 0.5px;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.tagline {
-  margin: 0 0 28px;
-  color: var(--text-1);
-  font-size: 13px;
-  letter-spacing: 0.3px;
-}
-
+/* `.dropzone` — used by the Import Audio modal (src/ui/ImportAudioModal.js). */
 .dropzone {
   border: 1.5px dashed var(--border);
   border-radius: 16px;
@@ -120,64 +81,6 @@ button {
   border-color: transparent;
 }
 .btn-ghost { background: transparent; }
-.btn-link {
-  background: none;
-  border: none;
-  color: var(--text-2);
-  font-size: 12px;
-  margin-top: 14px;
-  text-decoration: underline;
-}
-.btn-generate {
-  width: 100%;
-  margin-top: 22px;
-  padding: 14px;
-  font-size: 15px;
-  letter-spacing: 1px;
-  background: linear-gradient(135deg, var(--accent-2), var(--accent));
-  border: none;
-  color: white;
-  box-shadow: 0 10px 30px rgba(255, 106, 26, 0.35);
-}
-
-.song-info { margin: 20px 0 4px; text-align: left; }
-.song-name { font-weight: 600; margin-bottom: 8px; font-size: 14px; }
-.checklist { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
-.checklist li {
-  font-size: 12.5px;
-  color: var(--text-2);
-  padding-left: 20px;
-  position: relative;
-}
-.checklist li::before {
-  content: "○";
-  position: absolute;
-  left: 0;
-}
-.checklist li.done { color: var(--good); }
-.checklist li.done::before { content: "✓"; }
-.checklist li.active { color: var(--text-0); }
-
-.style-picker { margin-top: 24px; text-align: left; }
-.style-label { font-size: 12px; color: var(--text-1); margin-bottom: 8px; }
-.style-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
-.style-btn {
-  flex: 1;
-  min-width: 90px;
-  border: 1px solid var(--border);
-  background: var(--bg-2);
-  color: var(--text-1);
-  padding: 10px 6px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-.style-btn.selected {
-  color: white;
-  border-color: var(--accent);
-  background: linear-gradient(135deg, rgba(255,106,26,0.35), rgba(255,147,70,0.25));
-}
 
 /* ============ Editor Shell ============ */
 .editor {

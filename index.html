@@ -11,51 +11,8 @@
 <body>
   <div id="app">
 
-    <!-- ============ ONBOARDING (first-run screen) ============ -->
-    <section id="onboarding" class="onboarding">
-      <div class="onboarding-card">
-        <h1>LightStage</h1>
-        <p class="tagline">Music → Analysis → Lighting Engine → Virtual Stage</p>
-
-        <div id="dropzone" class="dropzone">
-          <div class="dropzone-icon">🎵</div>
-          <div class="dropzone-title">Drop a song here</div>
-          <div class="dropzone-sub">or</div>
-          <button id="btn-add-song" class="btn btn-primary">+ Add Song</button>
-          <button id="btn-demo-song" class="btn btn-ghost">Use Demo Song</button>
-          <input id="file-input" type="file" accept="audio/*" class="visually-hidden-input" />
-        </div>
-
-        <div id="song-info" class="song-info hidden">
-          <div class="song-name" id="song-name">—</div>
-          <ul class="checklist" id="analysis-checklist">
-            <li data-order="0">Decoding audio…</li>
-            <li data-order="1">Frequency analysis complete</li>
-            <li data-order="2">BPM detected</li>
-            <li data-order="2">Beats detected</li>
-            <li data-order="3">Musical sections estimated</li>
-          </ul>
-        </div>
-
-        <div class="style-picker">
-          <div class="style-label">Choose a style:</div>
-          <div class="style-buttons" id="style-buttons">
-            <button class="style-btn" data-style="edm">EDM</button>
-            <button class="style-btn" data-style="rock">ROCK</button>
-            <button class="style-btn" data-style="pop">POP</button>
-            <button class="style-btn" data-style="chill">CHILL</button>
-            <button class="style-btn" data-style="cinematic">CINEMATIC</button>
-          </div>
-        </div>
-
-        <button id="btn-generate" class="btn btn-generate" disabled>GENERATE SHOW</button>
-        <button id="btn-open-project" class="btn btn-link">Open an existing project →</button>
-        <button id="btn-skip-onboarding" class="btn btn-link">Open editor without generating →</button>
-      </div>
-    </section>
-
     <!-- ============ MAIN EDITOR ============ -->
-    <div id="editor" class="editor hidden">
+    <div id="editor" class="editor">
       <header class="menubar">
         <div class="menubar-left">
           <span class="brand">✦ LightStage</span>
